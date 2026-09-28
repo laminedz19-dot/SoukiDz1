@@ -154,6 +154,14 @@ fun AdminDashboardScreen(
 
     // Search Users
     var userSearchQuery by remember { mutableStateOf("") }
+    var showChangePinDialog by remember { mutableStateOf(false) }
+
+    if (showChangePinDialog) {
+        com.example.ChangeAdminPinDialog(
+            viewModel = viewModel,
+            onDismiss = { showChangePinDialog = false }
+        )
+    }
 
     if (rejectingAdId != null) {
         AlertDialog(
@@ -320,6 +328,9 @@ fun AdminDashboardScreen(
                 }
             },
             actions = {
+                IconButton(onClick = { showChangePinDialog = true }) {
+                    Icon(Icons.Default.Key, contentDescription = "تغيير رمز الإشراف", tint = GoldSecondary)
+                }
                 Button(
                     onClick = onBack,
                     colors = ButtonDefaults.buttonColors(containerColor = UrgentRed),
@@ -854,6 +865,64 @@ fun AdminDashboardScreen(
                                     Icon(Icons.Default.RestartAlt, contentDescription = null, modifier = Modifier.size(16.dp))
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Text("استعادة الافتراضي", fontSize = 12.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                item {
+                    // PIN Management Card
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        border = BorderStroke(1.dp, GoldSecondary.copy(alpha = 0.5f))
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = GoldSecondary.copy(alpha = 0.15f),
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(Icons.Default.Key, contentDescription = null, tint = GoldDark, modifier = Modifier.size(20.dp))
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text("رمز دخول الإشراف (Admin PIN)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                        Text("حماية بوابة تطبيق سوقي إشراف من الوصول غير المصرح به", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text("الرمز السري الحالي مفعل ومحمي محلياً", fontSize = 12.sp, color = EmeraldDark, fontWeight = FontWeight.SemiBold)
+                                    Text("يمكنك تعيين رمز جديد مخصص في أي وقت", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+
+                                Button(
+                                    onClick = { showChangePinDialog = true },
+                                    colors = ButtonDefaults.buttonColors(containerColor = GoldSecondary),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color.White)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("تغيير الرمز الآن", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
                                 }
                             }
                         }

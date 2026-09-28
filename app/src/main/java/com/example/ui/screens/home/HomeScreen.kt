@@ -103,7 +103,7 @@ fun HomeScreen(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "انشر إعلانك ووصل لملايين المشترين في 58 ولاية",
+                            text = "انشر إعلانك ووصل لملايين المشترين في 69 ولاية",
                             color = Color.White.copy(alpha = 0.85f),
                             fontSize = 11.sp
                         )
