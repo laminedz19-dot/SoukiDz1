@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "851139638185",
+    "project_id": "soukidz",
+    "storage_bucket": "soukidz.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:851139638185:android:3a8e1e0c1e8d515a380ab8",
+        "android_client_info": {
+          "package_name": "SoukiDz.lamine"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAM4icz19H9iajUIb8RONltojeC0VRtTFM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

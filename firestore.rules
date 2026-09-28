@@ -1,0 +1,59 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && request.auth.token.admin == true;
+    }
+
+    // User profiles
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      // Allow user to create/update their own profile, but prevent modifying role, isVerified, isBanned
+      allow create: if isOwner(userId) && request.resource.data.role == "USER" && request.resource.data.isVerified == false && request.resource.data.isBanned == false;
+      allow update: if isOwner(userId) &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'isVerified', 'isBanned']);
+      allow delete: if false;
+    }
+
+    // Listings
+    match /listings/{listingId} {
+      // Anyone authenticated can read published listings, or owner/admin can read unpublished listings
+      allow read: if resource == null || resource.data.status == 'PUBLISHED' || isOwner(resource.data.userId) || isAdmin();
+      
+      // Creating a new listing
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      
+      // Updating a listing (owner can update, but cannot directly approve or modify payment status if not admin)
+      allow update: if (isOwner(resource.data.userId) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['isPaid', 'status'])) || isAdmin();
+      
+      // Deleting a listing
+      allow delete: if isOwner(resource.data.userId) || isAdmin();
+    }
+
+    // Payments
+    match /payments/{paymentId} {
+      // Users can only view their own payment records; admins can view all
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      // Client can only create an initial payment audit entry for their own user ID
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      // No client updates or deletions allowed on payments (must be handled by server/webhook)
+      allow update, delete: if false;
+    }
+
+    // Platform settings
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+  }
+}
