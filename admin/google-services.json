@@ -7,9 +7,9 @@
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:851139638185:android:3a8e1e0c1e8d515a380ab8",
+        "mobilesdk_app_id": "1:851139638185:android:bdad4c549b856151380ab8",
         "android_client_info": {
-          "package_name": "SoukiDz.admin"
+          "package_name": "SoukiDz.Admin"
         }
       },
       "oauth_client": [],

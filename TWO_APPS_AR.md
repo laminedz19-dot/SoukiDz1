@@ -5,7 +5,7 @@
 | الوحدة | `applicationId` | الوظيفة | APK |
 |---|---|---|---|
 | `:app` | `SoukiDz.lamine` | تطبيق المستخدمين | `app-debug.apk` |
-| `:admin` | `SoukiDz.admin` | تطبيق الإدارة | `admin-debug.apk` |
+| `:admin` | `SoukiDz.Admin` | تطبيق الإدارة | `admin-debug.apk` |
 
 كل تطبيق يحتوي على Activity تشغيل واحدة فقط. لا يظهر تطبيق الإدارة داخل APK المستخدم.
 
@@ -21,7 +21,7 @@
 2. أضف Android App جديداً بالحزمة:
 
    ```text
-   SoukiDz.admin
+   SoukiDz.Admin
    ```
 
 3. نزّل `google-services.json` الخاص بالتطبيق الإداري وضعه في:
@@ -58,7 +58,7 @@ gradle :admin:assembleDebug
 
 ## ملاحظة مهمة
 
-نسخة `admin/google-services.json` الحالية قالب مؤقت لتطابق الحزمة أثناء البناء. يجب استبدالها بملف JSON الذي ينزّل من Firebase بعد تسجيل التطبيق الإداري فعلياً. لا تستخدم النسخة الحالية للإصدار الإنتاجي؛ قد لا يعمل Firebase Authentication أو الخدمات المرتبطة بالتطبيق الإداري حتى يتم تسجيل `SoukiDz.admin` في Firebase.
+نسخة `admin/google-services.json` الحالية قالب مؤقت لتطابق الحزمة أثناء البناء. يجب استبدالها بملف JSON الذي ينزّل من Firebase بعد تسجيل التطبيق الإداري فعلياً. لا تستخدم النسخة الحالية للإصدار الإنتاجي؛ قد لا يعمل Firebase Authentication أو الخدمات المرتبطة بالتطبيق الإداري حتى يتم تسجيل `SoukiDz.Admin` في Firebase.
 
 ## البناء بدون Android Studio عبر GitHub
 
