@@ -32,19 +32,6 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <activity
-            android:name=".AdminActivity"
-            android:exported="true"
-            android:label="@string/admin_app_name"
-            android:icon="@mipmap/ic_admin_launcher"
-            android:roundIcon="@mipmap/ic_admin_launcher_round"
-            android:theme="@style/Theme.MyApplication">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
     </application>
 
 </manifest>
