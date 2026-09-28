@@ -236,10 +236,16 @@ class MarketplaceRepository(
     fun getAllUsers(): Flow<List<UserEntity>> = db.userDao().getAllUsers()
     suspend fun getAllUsersDirect(): List<UserEntity> = db.userDao().getAllUsersDirect()
     suspend fun saveUser(user: UserEntity) {
+        // Always persist locally first. Cloud sync must not leave the registration UI
+        // spinning forever when Firebase is unavailable or its rules reject the write.
         db.userDao().insertUser(user)
         try {
-            firestoreService.saveUser(user)
-        } catch (_: Exception) {}
+            kotlinx.coroutines.withTimeoutOrNull(5_000L) {
+                firestoreService.saveUser(user)
+            }
+        } catch (_: Exception) {
+            // The local profile remains available; the next sync can retry the cloud write.
+        }
     }
 
     suspend fun createEmptyWallet(userId: String) {
