@@ -85,6 +85,17 @@
         "createdAt": { "type": "timestamp" },
         "reviewedAt": { "type": "timestamp" }
       }
+    },
+    "Wallet": {
+      "collection": "wallets",
+      "fields": {
+        "userId": { "type": "string" },
+        "balanceDzd": { "type": "number" },
+        "pendingBalanceDzd": { "type": "number" },
+        "currency": { "type": "string" },
+        "isActive": { "type": "boolean" },
+        "updatedAt": { "type": "timestamp" }
+      }
     }
   }
 }

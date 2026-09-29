@@ -586,6 +586,20 @@ class MarketplaceViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    /**
+     * Reads the current user's balance directly from Firestore and returns it via callback.
+     */
+    fun getCurrentUserBalance(onResult: (Int) -> Unit) {
+        viewModelScope.launch {
+            val uid = _currentUserId.value
+            val res = repository.getCurrentUserBalance(uid)
+            val balance = res.getOrDefault(0)
+            withContext(Dispatchers.Main) {
+                onResult(balance)
+            }
+        }
+    }
+
     fun submitTopUpRequest(
         amount: Int,
         provider: String,

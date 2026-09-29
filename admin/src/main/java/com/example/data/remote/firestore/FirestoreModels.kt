@@ -3,6 +3,7 @@ package com.example.data.remote.firestore
 import com.example.data.local.ListingEntity
 import com.example.data.local.TopUpRequestEntity
 import com.example.data.local.UserEntity
+import com.example.data.local.WalletEntity
 import com.google.firebase.firestore.DocumentId
 import com.google.firebase.firestore.IgnoreExtraProperties
 import com.google.firebase.firestore.ServerTimestamp
@@ -262,3 +263,38 @@ data class FirestoreTopUpRequest(
         }
     }
 }
+
+/**
+ * Firestore data model for the "wallets" collection.
+ * Manages user balance and wallet status directly on Firestore.
+ */
+@IgnoreExtraProperties
+data class FirestoreWallet(
+    @DocumentId
+    val userId: String = "",
+    val balanceDzd: Int = 0,
+    val pendingBalanceDzd: Int = 0,
+    val currency: String = "DZD",
+    val isActive: Boolean = true,
+    @ServerTimestamp
+    val updatedAt: Date? = null
+) {
+    fun toWalletEntity(): WalletEntity {
+        return WalletEntity(
+            userId = userId,
+            balanceDzd = balanceDzd,
+            updatedAt = updatedAt?.time ?: System.currentTimeMillis()
+        )
+    }
+
+    companion object {
+        fun fromWalletEntity(entity: WalletEntity): FirestoreWallet {
+            return FirestoreWallet(
+                userId = entity.userId,
+                balanceDzd = entity.balanceDzd,
+                updatedAt = Date(entity.updatedAt)
+            )
+        }
+    }
+}
+

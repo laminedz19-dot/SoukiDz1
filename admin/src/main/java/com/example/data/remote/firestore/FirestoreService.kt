@@ -23,6 +23,7 @@ class FirestoreService(
         const val COLLECTION_PAYMENTS = "payments"
         const val COLLECTION_SETTINGS = "settings"
         const val COLLECTION_TOP_UP_REQUESTS = "topUpRequests"
+        const val COLLECTION_WALLETS = "wallets"
     }
 
     private val firestore: FirebaseFirestore? = customFirestore ?: run {
@@ -229,11 +230,109 @@ class FirestoreService(
                     "reviewedAt" to FieldValue.serverTimestamp()
                 )
                 transaction.update(docRef, updates)
+
+                // If APPROVED, also credit the user's wallet in Firestore atomically
+                if (newStatus == "APPROVED") {
+                    val userId = snapshot.getString("userId").orEmpty()
+                    val amountDzd = snapshot.getLong("amountDzd")?.toInt() ?: 0
+                    if (userId.isNotBlank() && amountDzd > 0) {
+                        val walletRef = db.collection(COLLECTION_WALLETS).document(userId)
+                        val walletSnapshot = transaction.get(walletRef)
+                        val currentBalance = if (walletSnapshot.exists()) walletSnapshot.getLong("balanceDzd")?.toInt() ?: 0 else 0
+                        val newBalance = currentBalance + amountDzd
+                        val walletData = mapOf(
+                            "userId" to userId,
+                            "balanceDzd" to newBalance,
+                            "pendingBalanceDzd" to 0,
+                            "currency" to "DZD",
+                            "isActive" to true,
+                            "updatedAt" to FieldValue.serverTimestamp()
+                        )
+                        transaction.set(walletRef, walletData, com.google.firebase.firestore.SetOptions.merge())
+                    }
+                }
             }.await()
             Log.i(TAG, "Successfully updated top-up request $requestId to $newStatus")
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e(TAG, "Error updating top-up request $requestId status: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Reads the specified user's balance in DZD directly from Firestore.
+     */
+    suspend fun getCurrentUserBalance(userId: String): Result<Int> {
+        val db = firestore ?: return Result.failure(IllegalStateException("خدمة Firestore غير متصلة"))
+        if (userId.isBlank()) return Result.success(0)
+        return try {
+            val doc = db.collection(COLLECTION_WALLETS).document(userId).get().await()
+            if (doc.exists()) {
+                val balance = doc.getLong("balanceDzd")?.toInt() ?: 0
+                Result.success(balance)
+            } else {
+                Result.success(0)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error reading user balance for $userId: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Retrieves the user's wallet document from Firestore.
+     */
+    suspend fun getUserWallet(userId: String): Result<FirestoreWallet?> {
+        val db = firestore ?: return Result.failure(IllegalStateException("خدمة Firestore غير متصلة"))
+        if (userId.isBlank()) return Result.success(null)
+        return try {
+            val doc = db.collection(COLLECTION_WALLETS).document(userId).get().await()
+            if (doc.exists()) {
+                val wallet = doc.toObject(FirestoreWallet::class.java)
+                Result.success(wallet)
+            } else {
+                Result.success(null)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error retrieving wallet for $userId: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Realtime flow for observing the user's wallet balance from Firestore.
+     */
+    fun getUserWalletFlow(userId: String): Flow<Result<FirestoreWallet?>> {
+        val db = firestore ?: return kotlinx.coroutines.flow.flowOf(Result.failure(IllegalStateException("خدمة Firestore غير مهيأة")))
+        return callbackFlow {
+            val listener = db.collection(COLLECTION_WALLETS).document(userId)
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        trySend(Result.failure(error))
+                        return@addSnapshotListener
+                    }
+                    if (snapshot != null && snapshot.exists()) {
+                        val wallet = snapshot.toObject(FirestoreWallet::class.java)
+                        trySend(Result.success(wallet))
+                    } else {
+                        trySend(Result.success(null))
+                    }
+                }
+            awaitClose { listener.remove() }
+        }
+    }
+
+    /**
+     * Saves or updates a user's wallet in Firestore.
+     */
+    suspend fun saveUserWallet(wallet: FirestoreWallet): Result<Unit> {
+        val db = firestore ?: return Result.failure(IllegalStateException("خدمة Firestore غير متصلة"))
+        return try {
+            db.collection(COLLECTION_WALLETS).document(wallet.userId).set(wallet).await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error saving user wallet: ${e.message}", e)
             Result.failure(e)
         }
     }

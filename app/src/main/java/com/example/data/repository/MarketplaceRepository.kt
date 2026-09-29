@@ -441,6 +441,33 @@ class MarketplaceRepository(
         return Result.failure(Exception("يرجى إرسال وصل التحويل للمراجعة اليدوية عبر شحن المحفظة."))
     }
 
+    /**
+     * Reads the specified user's balance directly from Firestore.
+     * Falls back to local Room database if Firestore is unreachable or offline.
+     */
+    suspend fun getCurrentUserBalance(userId: String): Result<Int> {
+        val firestoreResult = firestoreService.getCurrentUserBalance(userId)
+        if (firestoreResult.isSuccess) {
+            val balance = firestoreResult.getOrDefault(0)
+            try {
+                val now = System.currentTimeMillis()
+                db.walletDao().insertOrUpdateWallet(WalletEntity(userId = userId, balanceDzd = balance, updatedAt = now))
+            } catch (e: Exception) {
+                android.util.Log.w("MarketplaceRepository", "Failed to cache Firestore balance locally: ${e.message}")
+            }
+            return firestoreResult
+        }
+        val localWallet = db.walletDao().getWalletDirect(userId)
+        return Result.success(localWallet?.balanceDzd ?: 0)
+    }
+
+    /**
+     * Realtime flow for observing the user's wallet document from Firestore.
+     */
+    fun getUserWalletFromFirestore(userId: String): Flow<Result<FirestoreWallet?>> {
+        return firestoreService.getUserWalletFlow(userId)
+    }
+
     // Users
     fun getUser(id: String): Flow<UserEntity?> = db.userDao().getUserById(id)
     suspend fun getUserDirect(id: String): UserEntity? = db.userDao().getUserByIdDirect(id)
