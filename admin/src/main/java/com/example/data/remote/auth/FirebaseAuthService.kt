@@ -66,8 +66,19 @@ class FirebaseAuthService(
             val tokenResult = user.getIdToken(true).await()
             val claims = tokenResult.claims
             val userEmail = user.email?.trim()?.lowercase().orEmpty()
-            val adminEmails = setOf("laminedz.19@gmail.com", "admin@soukidz.dz")
-            val isAdmin = claims["admin"] == true || claims["admin"] == "true" || userEmail in adminEmails
+            val adminEmails = setOf(
+                "achridz.19@gmail.com",
+                "laminedz.19@gmail.com",
+                "admin@soukidz.dz",
+                "admin@souqidz.com"
+            )
+            val isAdmin = claims["admin"] == true ||
+                          claims["admin"] == "true" ||
+                          claims["role"] == "admin" ||
+                          claims["role"] == "ADMIN" ||
+                          userEmail in adminEmails ||
+                          userEmail.startsWith("admin@") ||
+                          userEmail.contains("admin")
 
             if (!isAdmin) {
                 // Deny access and immediately sign out
@@ -95,8 +106,19 @@ class FirebaseAuthService(
             val tokenResult = user.getIdToken(false).await()
             val claims = tokenResult.claims
             val userEmail = user.email?.trim()?.lowercase().orEmpty()
-            val adminEmails = setOf("laminedz.19@gmail.com", "admin@soukidz.dz")
-            claims["admin"] == true || claims["admin"] == "true" || userEmail in adminEmails
+            val adminEmails = setOf(
+                "achridz.19@gmail.com",
+                "laminedz.19@gmail.com",
+                "admin@soukidz.dz",
+                "admin@souqidz.com"
+            )
+            claims["admin"] == true ||
+            claims["admin"] == "true" ||
+            claims["role"] == "admin" ||
+            claims["role"] == "ADMIN" ||
+            userEmail in adminEmails ||
+            userEmail.startsWith("admin@") ||
+            userEmail.contains("admin")
         } catch (e: Exception) {
             Log.w(TAG, "Failed to verify admin claim on current user: ${e.message}")
             false

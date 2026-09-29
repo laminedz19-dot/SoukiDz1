@@ -90,7 +90,10 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun SouqiApp(viewModel: MarketplaceViewModel) {
-    var currentScreen by remember { mutableStateOf<Screen>(Screen.AuthLanding) }
+    val isInitiallyLoggedIn = viewModel.repository.authService.currentUser != null
+    var currentScreen by remember { 
+        mutableStateOf<Screen>(if (isInitiallyLoggedIn) Screen.MainTab("home") else Screen.AuthLanding) 
+    }
     var showSplash by remember { mutableStateOf(true) }
     val currentUserId by viewModel.currentUserId.collectAsState()
     val currentLang by viewModel.language.collectAsState()
@@ -99,8 +102,14 @@ fun SouqiApp(viewModel: MarketplaceViewModel) {
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(Unit) {
-        delay(5_000L)
+        if (viewModel.repository.authService.currentUser != null) {
+            currentScreen = Screen.MainTab("home")
+        }
+        delay(2_500L)
         showSplash = false
+        if (viewModel.repository.authService.currentUser != null && currentScreen is Screen.AuthLanding) {
+            currentScreen = Screen.MainTab("home")
+        }
     }
 
     if (showSplash) {
