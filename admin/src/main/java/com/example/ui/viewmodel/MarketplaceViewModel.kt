@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
@@ -604,11 +605,11 @@ class MarketplaceViewModel(application: Application) : AndroidViewModel(applicat
 
         viewModelScope.launch {
             val result = repository.submitTopUpRequest(
-                userId = _currentUserId.value,
+                context = getApplication(),
                 amount = amount,
                 provider = provider,
                 reference = reference,
-                receiptImageUri = receiptImageUri
+                receiptImageUriString = receiptImageUri
             )
             result.onSuccess { msg ->
                 emitMessage(msg)

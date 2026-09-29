@@ -21,6 +21,7 @@ import com.example.data.remote.auth.FirebaseAuthService
 import com.example.data.remote.firestore.FirestorePayment
 import com.example.data.remote.firestore.FirestoreService
 import com.example.data.remote.firestore.FirestoreTopUpRequest
+import com.example.data.remote.firestore.FirestoreWallet
 import com.example.data.remote.storage.FirebaseStorageService
 import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
@@ -290,11 +291,11 @@ class MarketplaceRepository(
         // 7. Extract user profile info for admin display
         val localUser = db.userDao().getUserByIdDirect(uid)
         val userName = localUser?.name?.ifBlank { null }
-            ?: currentFirebaseUser.displayName?.ifBlank { null }
-            ?: currentFirebaseUser.email?.substringBefore("@")
+            ?: currentFirebaseUser?.displayName?.ifBlank { null }
+            ?: currentFirebaseUser?.email?.substringBefore("@")
             ?: "مستخدم سوقي"
         val userPhone = localUser?.phone?.ifBlank { null }
-            ?: currentFirebaseUser.phoneNumber
+            ?: currentFirebaseUser?.phoneNumber
             ?: ""
 
         // 8. Build Firestore object

@@ -144,6 +144,7 @@ fun AdminDashboardScreen(
     var previewReceiptUrl by remember { mutableStateOf<String?>(null) }
     var rejectTopUpTarget by remember { mutableStateOf<TopUpRequestEntity?>(null) }
     var rejectTopUpReason by remember { mutableStateOf("") }
+    var showChangePinDialog by remember { mutableStateOf(false) }
 
     // Rejection Dialog state
     var rejectingAdId by remember { mutableStateOf<String?>(null) }
@@ -298,6 +299,24 @@ fun AdminDashboardScreen(
             },
             dismissButton = {
                 TextButton(onClick = { rejectTopUpTarget = null }) { Text("إلغاء") }
+            }
+        )
+    }
+
+    if (showChangePinDialog) {
+        AlertDialog(
+            onDismissRequest = { showChangePinDialog = false },
+            title = { Text("رمز دخول الإشراف", fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "يتم إدارة مصادقة المشرف وأمان النظام حالياً بصورة مشفرة ومؤمنة عبر Firebase Authentication للبريد المعتمد (laminedz.19@gmail.com).",
+                    fontSize = 13.sp
+                )
+            },
+            confirmButton = {
+                Button(onClick = { showChangePinDialog = false }) {
+                    Text("حسناً")
+                }
             }
         )
     }
