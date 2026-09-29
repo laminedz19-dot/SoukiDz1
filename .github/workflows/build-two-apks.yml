@@ -32,10 +32,26 @@ jobs:
       - name: Build both debug APKs
         run: gradle :app:assembleDebug :admin:assembleDebug --no-daemon
 
-      - name: Upload APKs
+      - name: Prepare Clean APKs
+        run: |
+          mkdir -p dist-apks
+          cp app/build/outputs/apk/debug/app-debug.apk dist-apks/SouqiDz-User.apk
+          cp admin/build/outputs/apk/debug/admin-debug.apk dist-apks/SouqiDz-Admin.apk
+
+      - name: Upload All APKs
         uses: actions/upload-artifact@v4
         with:
           name: souqi-dz-apks
-          path: |
-            app/build/outputs/apk/debug/app-debug.apk
-            admin/build/outputs/apk/debug/admin-debug.apk
+          path: dist-apks/*.apk
+
+      - name: Upload Admin APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: souqi-dz-admin-apk
+          path: dist-apks/SouqiDz-Admin.apk
+
+      - name: Upload User APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: souqi-dz-user-apk
+          path: dist-apks/SouqiDz-User.apk
