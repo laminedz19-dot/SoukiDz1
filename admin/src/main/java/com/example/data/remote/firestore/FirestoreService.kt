@@ -159,10 +159,24 @@ class FirestoreService(
     suspend fun submitTopUpRequest(request: FirestoreTopUpRequest): Result<Unit> {
         val db = firestore ?: return Result.failure(IllegalStateException("خدمة Firestore غير متصلة أو غير مهيأة"))
         return try {
-            withTimeout(5000L) {
+            withTimeout(15000L) {
+                val data = hashMapOf(
+                    "id" to request.id,
+                    "userId" to request.userId,
+                    "userName" to request.userName,
+                    "userPhone" to request.userPhone,
+                    "amountDzd" to request.amountDzd,
+                    "provider" to request.provider,
+                    "reference" to request.reference,
+                    "receiptImageUri" to request.receiptImageUri,
+                    "status" to request.status,
+                    "adminNote" to request.adminNote,
+                    "createdAt" to (request.createdAt ?: FieldValue.serverTimestamp()),
+                    "reviewedAt" to request.reviewedAt
+                )
                 db.collection(COLLECTION_TOP_UP_REQUESTS)
                     .document(request.id)
-                    .set(request)
+                    .set(data)
                     .await()
             }
             Log.i(TAG, "Successfully submitted top-up request: ${request.id}")

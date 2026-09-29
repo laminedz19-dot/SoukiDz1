@@ -14,7 +14,7 @@ service cloud.firestore {
     function isAdmin() {
       return isAuthenticated() && (
         request.auth.token.admin == true ||
-        request.auth.token.email in ['laminedz.19@gmail.com', 'admin@soukidz.dz']
+        request.auth.token.email in ['laminedz.19@gmail.com', 'achridz.19@gmail.com', 'admin@soukidz.dz']
       );
     }
 
@@ -62,14 +62,10 @@ service cloud.firestore {
       function isValidTopUpCreate() {
         let d = request.resource.data;
         return d.userId == request.auth.uid
-          && d.id == requestId
           && d.amountDzd is int && d.amountDzd >= 200
           && isValidProvider(d.provider)
           && d.status == 'PENDING'
-          && d.adminNote == ''
-          && d.reviewedAt == null
-          && (d.receiptImageUri is string || d.reference is string)
-          && (d.receiptImageUri.size() > 0 || d.reference.size() > 0);
+          && (d.receiptImageUri is string || d.reference is string);
       }
 
       // Read: Users can only read their own requests; Admin can read all

@@ -227,7 +227,8 @@ fun SouqiApp(viewModel: MarketplaceViewModel) {
                                 onOpenSecurity = { currentScreen = Screen.SecurityCenter },
                                 onEditProfile = { currentScreen = Screen.EditProfile },
                                 onChangePassword = { currentScreen = Screen.ChangePassword },
-                                onLogout = { currentScreen = Screen.AuthLanding }
+                                onLogout = { currentScreen = Screen.AuthLanding },
+                                onLogin = { currentScreen = Screen.Login }
                             )
                         }
                     }

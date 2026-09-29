@@ -106,7 +106,8 @@ fun ProfileScreen(
     onOpenSecurity: () -> Unit = {},
     onEditProfile: () -> Unit = {},
     onChangePassword: () -> Unit = {},
-    onLogout: () -> Unit = {}
+    onLogout: () -> Unit = {},
+    onLogin: () -> Unit = {}
 ) {
     val currentUser by viewModel.currentUser.collectAsState()
     val currentUserId by viewModel.currentUserId.collectAsState()
@@ -167,8 +168,48 @@ fun ProfileScreen(
                 }
             },
             text = {
+                val isUserLoggedIn = viewModel.repository.authService.currentUser != null
                 LazyColumn(modifier = Modifier.fillMaxWidth()) {
                     item {
+                        if (!isUserLoggedIn) {
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 10.dp),
+                                colors = CardDefaults.cardColors(containerColor = UrgentRed.copy(alpha = 0.12f)),
+                                border = BorderStroke(1.dp, UrgentRed.copy(alpha = 0.4f)),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(10.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.Lock, contentDescription = null, tint = UrgentRed, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("تنبيه: أنت تتصفح كزائر", fontWeight = FontWeight.Bold, color = UrgentRed, fontSize = 12.sp)
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        "يجب تسجيل الدخول بحسابك أولاً حتى يتمكن المشرف من التعرف عليك وشحن الرصيد في محفظتك تلقائياً.",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        lineHeight = 15.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Button(
+                                        onClick = {
+                                            showTopUpDialog = false
+                                            onLogin()
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
+                                        modifier = Modifier.fillMaxWidth().height(34.dp),
+                                        shape = RoundedCornerShape(6.dp),
+                                        contentPadding = PaddingValues(0.dp)
+                                    ) {
+                                        Text("تسجيل الدخول الآن", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+
                         // Official Account Card
                         Card(
                             modifier = Modifier.fillMaxWidth(),
@@ -443,6 +484,11 @@ fun ProfileScreen(
             confirmButton = {
                 Button(
                     onClick = {
+                        val isUserLoggedIn = viewModel.repository.authService.currentUser != null
+                        if (!isUserLoggedIn) {
+                            topUpErrorText = "يرجى تسجيل الدخول أولاً بحسابك لإرسال طلب الشحن والوصل إلى المشرف."
+                            return@Button
+                        }
                         val amount = topUpAmountText.toIntOrNull() ?: 0
                         if (amount < 200) {
                             topUpErrorText = "الحد الأدنى لشحن الرصيد هو 200 دج"

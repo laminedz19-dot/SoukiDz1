@@ -257,21 +257,24 @@ class MarketplaceRepository(
         var currentFirebaseUser = authService.currentUser
         if (currentFirebaseUser == null) {
             try {
-                val anonResult = withTimeoutOrNull(3000L) {
+                val anonResult = withTimeoutOrNull(6000L) {
                     authService.signInAnonymously()
                 }
                 if (anonResult?.isSuccess == true) {
                     currentFirebaseUser = anonResult.getOrNull()
                 }
             } catch (t: Throwable) {
-                android.util.Log.w("MarketplaceRepository", "Anonymous auth attempt bypassed: ${t.message}")
+                android.util.Log.w("MarketplaceRepository", "Anonymous auth attempt: ${t.message}")
             }
         }
 
-        val uid = currentFirebaseUser?.uid ?: userId.ifBlank {
-            val localMe = db.userDao().getUserByIdDirect("user_me")?.id
-            localMe ?: "usr_${UUID.randomUUID().toString().replace("-", "").take(12)}"
+        if (currentFirebaseUser == null) {
+            return@withContext Result.failure(
+                IllegalStateException("يجب تسجيل الدخول أو إنشاء حساب أولاً لتقديم طلب شحن الرصيد لربطه بمحفظتك الرقمية.")
+            )
         }
+
+        val uid = currentFirebaseUser.uid
 
         // 5. Generate requestId before uploading image
         val requestId = "req_" + UUID.randomUUID().toString().replace("-", "").take(16)
@@ -280,10 +283,8 @@ class MarketplaceRepository(
         var storedReceiptPath = ""
         if (hasReceipt) {
             val localUri = Uri.parse(receiptImageUriString)
-            val base64DataUri = compressImageToBase64DataUri(context, localUri)
-            var uploadedToStorage = false
             try {
-                val uploadResult = withTimeoutOrNull(4000L) {
+                val uploadResult = withTimeoutOrNull(25000L) {
                     storageService.uploadTopUpReceipt(
                         context = context,
                         userId = uid,
@@ -293,14 +294,18 @@ class MarketplaceRepository(
                 }
                 if (uploadResult?.isSuccess == true) {
                     storedReceiptPath = uploadResult.getOrNull().orEmpty()
-                    uploadedToStorage = true
+                } else {
+                    val err = uploadResult?.exceptionOrNull()?.message ?: "مهلة الرفع انتهت"
+                    android.util.Log.w("MarketplaceRepository", "Storage upload warning: $err")
                 }
             } catch (t: Throwable) {
-                android.util.Log.w("MarketplaceRepository", "Storage upload timed out/bypassed: ${t.message}")
+                android.util.Log.w("MarketplaceRepository", "Storage upload exception: ${t.message}")
             }
 
-            if (!uploadedToStorage) {
-                storedReceiptPath = base64DataUri ?: receiptImageUriString
+            if (storedReceiptPath.isBlank() && !hasReference) {
+                return@withContext Result.failure(
+                    IllegalStateException("تعذر رفع صورة الوصل إلى السحابة. يُرجى إدخال رقم مرجع العملية أو التحقق من الاتصال بالإنترنت.")
+                )
             }
         }
 
@@ -309,14 +314,42 @@ class MarketplaceRepository(
             ?: (if (userId.isNotBlank()) db.userDao().getUserByIdDirect(userId) else null)
             ?: db.userDao().getUserByIdDirect("user_me")
         val userName = localUser?.name?.ifBlank { null }
-            ?: currentFirebaseUser?.displayName?.ifBlank { null }
-            ?: currentFirebaseUser?.email?.substringBefore("@")
+            ?: currentFirebaseUser.displayName?.ifBlank { null }
+            ?: currentFirebaseUser.email?.substringBefore("@")
             ?: "مستخدم سوقي"
         val userPhone = localUser?.phone?.ifBlank { null }
-            ?: currentFirebaseUser?.phoneNumber
+            ?: currentFirebaseUser.phoneNumber
             ?: ""
 
-        // 8. Room FIRST: Save locally immediately so user never loses their request or waits
+        // 8. Sync with Firestore FIRST: verify cloud storage before confirming to user
+        val firestoreReq = FirestoreTopUpRequest(
+            id = requestId,
+            userId = uid,
+            userName = userName,
+            userPhone = userPhone,
+            amountDzd = amount,
+            provider = provider,
+            reference = reference.trim(),
+            receiptImageUri = storedReceiptPath,
+            status = "PENDING",
+            adminNote = "",
+            createdAt = null,
+            reviewedAt = null
+        )
+
+        val firestoreResult = withTimeoutOrNull(15000L) {
+            firestoreService.submitTopUpRequest(firestoreReq)
+        }
+
+        if (firestoreResult == null || firestoreResult.isFailure) {
+            val err = firestoreResult?.exceptionOrNull()?.message ?: "انتهت مهلة الاتصال بالخادم"
+            android.util.Log.e("MarketplaceRepository", "Firestore write failed: $err")
+            return@withContext Result.failure(
+                IllegalStateException("تعذر تسجيل طلب الشحن في الخادم السحابي: $err")
+            )
+        }
+
+        // 9. Save locally in Room after cloud confirmation
         val now = System.currentTimeMillis()
         val cachedEntity = TopUpRequestEntity(
             id = requestId,
@@ -326,7 +359,7 @@ class MarketplaceRepository(
             amountDzd = amount,
             provider = provider,
             reference = reference.trim(),
-            receiptImageUri = storedReceiptPath,
+            receiptImageUri = storedReceiptPath.ifBlank { receiptImageUriString },
             status = "PENDING",
             adminNote = "",
             createdAt = now,
@@ -342,33 +375,7 @@ class MarketplaceRepository(
             android.util.Log.e("MarketplaceRepository", "Failed to cache request locally: ${dbErr.message}")
         }
 
-        // 9. Sync with Firestore with a strict timeout
-        try {
-            val firestoreReq = FirestoreTopUpRequest(
-                id = requestId,
-                userId = uid,
-                userName = userName,
-                userPhone = userPhone,
-                amountDzd = amount,
-                provider = provider,
-                reference = reference.trim(),
-                receiptImageUri = if (storedReceiptPath.startsWith("data:") || !storedReceiptPath.contains("/")) "" else storedReceiptPath,
-                status = "PENDING",
-                adminNote = "",
-                createdAt = null,
-                reviewedAt = null
-            )
-            val firestoreResult = withTimeoutOrNull(4000L) {
-                firestoreService.submitTopUpRequest(firestoreReq)
-            }
-            if (firestoreResult?.isFailure == true) {
-                android.util.Log.w("MarketplaceRepository", "Firestore write warning: ${firestoreResult.exceptionOrNull()?.message}")
-            }
-        } catch (e: Exception) {
-            android.util.Log.w("MarketplaceRepository", "Firestore sync timed out or bypassed: ${e.message}")
-        }
-
-        Result.success("تم إرسال طلب الشحن بنجاح! سيتم التحقق من الوصل واعتماد الرصيد.")
+        Result.success("تم إرسال طلب الشحن ووصل الدفع بنجاح إلى الإدارة! ستتم مراجعته واعتماد الرصيد قريباً.")
     }
 
     /**

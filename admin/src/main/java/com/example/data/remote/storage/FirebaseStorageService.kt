@@ -458,8 +458,13 @@ class FirebaseStorageService(
 
         return try {
             ref.putFile(imageUri, metadata).await()
-            Log.i(TAG, "Successfully uploaded top-up receipt to $storagePath")
-            Result.success(storagePath)
+            val downloadUrl = try {
+                ref.downloadUrl.await().toString()
+            } catch (_: Exception) {
+                storagePath
+            }
+            Log.i(TAG, "Successfully uploaded top-up receipt to $storagePath (url: $downloadUrl)")
+            Result.success(downloadUrl)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to upload top-up receipt to $storagePath: ${e.message}", e)
             Result.failure(e)
