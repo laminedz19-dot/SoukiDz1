@@ -23,23 +23,18 @@ android {
   }
 
   signingConfigs {
-    getByName("debug") {
-      val debugKey = file("${rootDir}/debug.keystore")
-      if (debugKey.exists()) {
-        storeFile = debugKey
-        storePassword = "android"
-        keyAlias = "androiddebugkey"
-        keyPassword = "android"
-      }
-      enableV1Signing = true
-      enableV2Signing = true
-    }
     create("release") {
       val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/admin-upload-key.jks"
       storeFile = file(keystorePath)
       storePassword = System.getenv("STORE_PASSWORD")
       keyAlias = "upload"
       keyPassword = System.getenv("KEY_PASSWORD")
+    }
+    create("debugConfig") {
+      storeFile = file("${rootDir}/debug.keystore")
+      storePassword = "android"
+      keyAlias = "androiddebugkey"
+      keyPassword = "android"
     }
   }
 
@@ -48,13 +43,9 @@ android {
       isCrunchPngs = false
       isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      // Production CI must provide KEYSTORE_PATH and passwords through secrets.
-      // Without them, keep the artifact unsigned rather than using a debug key.
-      val keystorePath = System.getenv("KEYSTORE_PATH")
-      if (!keystorePath.isNullOrBlank() && file(keystorePath).exists()) {
-        signingConfig = signingConfigs.getByName("release")
-      }
+      signingConfig = signingConfigs.getByName("release")
     }
+    debug { signingConfig = signingConfigs.getByName("debugConfig") }
   }
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_11

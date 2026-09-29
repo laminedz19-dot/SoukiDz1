@@ -5,6 +5,7 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeout
 
 class FirebaseAuthService(
     customAuth: FirebaseAuth? = null
@@ -54,7 +55,9 @@ class FirebaseAuthService(
     suspend fun signInAnonymously(): Result<FirebaseUser?> {
         val a = auth ?: return Result.failure(IllegalStateException("Firebase Auth is not initialized"))
         return try {
-            val result = a.signInAnonymously().await()
+            val result = withTimeout(4000L) {
+                a.signInAnonymously().await()
+            }
             Log.i(TAG, "Signed in anonymously with UID: ${result.user?.uid}")
             Result.success(result.user)
         } catch (e: Exception) {

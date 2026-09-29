@@ -178,10 +178,11 @@ class MarketplaceViewModel(application: Application) : AndroidViewModel(applicat
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), TopUpSyncState.Loading)
 
-    val userTopUpRequests: StateFlow<List<TopUpRequestEntity>> = userTopUpSyncState.map { state ->
-        when (state) {
-            is TopUpSyncState.Success -> state.requests
-            else -> emptyList()
+    val userTopUpRequests: StateFlow<List<TopUpRequestEntity>> = _currentUserId.flatMapLatest { id ->
+        if (id.isBlank() || id == "user_me") {
+            repository.getAllTopUpRequests()
+        } else {
+            repository.getUserTopUpRequests(id)
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -623,18 +624,25 @@ class MarketplaceViewModel(application: Application) : AndroidViewModel(applicat
         }
 
         viewModelScope.launch {
-            val result = repository.submitTopUpRequest(
-                context = getApplication(),
-                amount = amount,
-                provider = provider,
-                reference = reference,
-                receiptImageUriString = receiptImageUri
-            )
-            result.onSuccess { msg ->
-                emitMessage(msg)
-                withContext(Dispatchers.Main) { onSuccess() }
-            }.onFailure { err ->
-                val errorMsg = err.message ?: "فشل إرسال طلب الشحن"
+            try {
+                val result = repository.submitTopUpRequest(
+                    context = getApplication(),
+                    userId = _currentUserId.value,
+                    amount = amount,
+                    provider = provider,
+                    reference = reference,
+                    receiptImageUriString = receiptImageUri
+                )
+                result.onSuccess { msg ->
+                    emitMessage(msg)
+                    withContext(Dispatchers.Main) { onSuccess() }
+                }.onFailure { err ->
+                    val errorMsg = err.message ?: "فشل إرسال طلب الشحن"
+                    emitMessage(errorMsg)
+                    withContext(Dispatchers.Main) { onError(errorMsg) }
+                }
+            } catch (t: Throwable) {
+                val errorMsg = t.message ?: "حدث خطأ أثناء معالجة الطلب"
                 emitMessage(errorMsg)
                 withContext(Dispatchers.Main) { onError(errorMsg) }
             }

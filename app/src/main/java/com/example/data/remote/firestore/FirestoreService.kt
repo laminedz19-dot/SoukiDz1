@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeout
 
 class FirestoreService(
     customFirestore: FirebaseFirestore? = null
@@ -158,10 +159,12 @@ class FirestoreService(
     suspend fun submitTopUpRequest(request: FirestoreTopUpRequest): Result<Unit> {
         val db = firestore ?: return Result.failure(IllegalStateException("خدمة Firestore غير متصلة أو غير مهيأة"))
         return try {
-            db.collection(COLLECTION_TOP_UP_REQUESTS)
-                .document(request.id)
-                .set(request)
-                .await()
+            withTimeout(5000L) {
+                db.collection(COLLECTION_TOP_UP_REQUESTS)
+                    .document(request.id)
+                    .set(request)
+                    .await()
+            }
             Log.i(TAG, "Successfully submitted top-up request: ${request.id}")
             Result.success(Unit)
         } catch (e: Exception) {

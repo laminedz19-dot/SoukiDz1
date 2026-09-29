@@ -12,6 +12,7 @@ import com.google.firebase.storage.StorageMetadata
 import com.google.firebase.storage.StorageReference
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeout
 import java.io.File
 import java.util.UUID
 import kotlin.coroutines.resume
@@ -457,7 +458,9 @@ class FirebaseStorageService(
             .build()
 
         return try {
-            ref.putFile(imageUri, metadata).await()
+            withTimeout(5000L) {
+                ref.putFile(imageUri, metadata).await()
+            }
             Log.i(TAG, "Successfully uploaded top-up receipt to $storagePath")
             Result.success(storagePath)
         } catch (e: Exception) {

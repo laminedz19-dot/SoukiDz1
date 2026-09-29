@@ -492,13 +492,11 @@ fun ProfileScreen(
             dismissButton = {
                 TextButton(
                     onClick = {
-                        if (!isSubmittingTopUp) {
-                            showTopUpDialog = false
-                            isAccountCopied = false
-                            topUpErrorText = null
-                        }
-                    },
-                    enabled = !isSubmittingTopUp
+                        showTopUpDialog = false
+                        isSubmittingTopUp = false
+                        isAccountCopied = false
+                        topUpErrorText = null
+                    }
                 ) {
                     Text("إلغاء")
                 }
