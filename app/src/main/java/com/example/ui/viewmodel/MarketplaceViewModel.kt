@@ -1010,32 +1010,9 @@ class MarketplaceViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    fun getAdminPin(): String {
-        val prefs = getApplication<Application>().getSharedPreferences("souqi_admin_prefs", android.content.Context.MODE_PRIVATE)
-        return prefs.getString("admin_pin_code", "2026") ?: "2026"
-    }
+    /**
+     * The consumer app intentionally has no local admin credential or admin reset path.
+     * Administration is available only in the separate app after Firebase claim validation.
+     */
 
-    fun updateAdminPin(oldPin: String, newPin: String): Boolean {
-        val current = getAdminPin()
-        if (oldPin.trim() != current.trim()) {
-            emitMessage("الرمز السري الحالي غير صحيح!")
-            return false
-        }
-        if (newPin.trim().length < 4) {
-            emitMessage("يجب أن يتكون الرمز الجديد من 4 أرقام على الأقل!")
-            return false
-        }
-        val prefs = getApplication<Application>().getSharedPreferences("souqi_admin_prefs", android.content.Context.MODE_PRIVATE)
-        prefs.edit().putString("admin_pin_code", newPin.trim()).apply()
-        logAdminAction("تغيير رمز الدخول للإدارة", "تم تغيير رمز الإشراف PIN بنجاح")
-        emitMessage("تم تحديث رمز دخول الإشراف بنجاح")
-        return true
-    }
-
-    fun resetAdminPinToDefault() {
-        val prefs = getApplication<Application>().getSharedPreferences("souqi_admin_prefs", android.content.Context.MODE_PRIVATE)
-        prefs.edit().putString("admin_pin_code", "2026").apply()
-        logAdminAction("استعادة رمز الإدارة الافتراضي", "تمت استعادة 2026")
-        emitMessage("تمت استعادة الرمز الافتراضي (2026)")
-    }
 }

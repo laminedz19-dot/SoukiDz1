@@ -49,7 +49,13 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "souqi_dz.db"
                 )
-                    .fallbackToDestructiveMigration()
+                    // Destructive migration is limited to debug builds so a release update
+                    // cannot silently erase wallets, listings, or messages.
+                    .also { builder ->
+                        if (com.example.BuildConfig.DEBUG) {
+                            builder.fallbackToDestructiveMigration()
+                        }
+                    }
                     .addCallback(DatabaseCallback())
                     .build()
                 INSTANCE = instance

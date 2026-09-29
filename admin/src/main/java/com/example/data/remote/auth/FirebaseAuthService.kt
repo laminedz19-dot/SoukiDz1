@@ -65,20 +65,12 @@ class FirebaseAuthService(
             // Force refresh ID token to load the latest custom claims from Firebase
             val tokenResult = user.getIdToken(true).await()
             val claims = tokenResult.claims
-            val userEmail = user.email?.trim()?.lowercase().orEmpty()
-            val adminEmails = setOf(
-                "achridz.19@gmail.com",
-                "laminedz.19@gmail.com",
-                "admin@soukidz.dz",
-                "admin@souqidz.com"
-            )
+            // Authorization is server-controlled: only an explicit custom claim grants admin access.
+            // Email names are not credentials and must never be used as an authorization bypass.
             val isAdmin = claims["admin"] == true ||
                           claims["admin"] == "true" ||
                           claims["role"] == "admin" ||
-                          claims["role"] == "ADMIN" ||
-                          userEmail in adminEmails ||
-                          userEmail.startsWith("admin@") ||
-                          userEmail.contains("admin")
+                          claims["role"] == "ADMIN"
 
             if (!isAdmin) {
                 // Deny access and immediately sign out
@@ -105,20 +97,11 @@ class FirebaseAuthService(
         return try {
             val tokenResult = user.getIdToken(false).await()
             val claims = tokenResult.claims
-            val userEmail = user.email?.trim()?.lowercase().orEmpty()
-            val adminEmails = setOf(
-                "achridz.19@gmail.com",
-                "laminedz.19@gmail.com",
-                "admin@soukidz.dz",
-                "admin@souqidz.com"
-            )
+            // Re-check the explicit server-issued claim on every session restore.
             claims["admin"] == true ||
             claims["admin"] == "true" ||
             claims["role"] == "admin" ||
-            claims["role"] == "ADMIN" ||
-            userEmail in adminEmails ||
-            userEmail.startsWith("admin@") ||
-            userEmail.contains("admin")
+            claims["role"] == "ADMIN"
         } catch (e: Exception) {
             Log.w(TAG, "Failed to verify admin claim on current user: ${e.message}")
             false
