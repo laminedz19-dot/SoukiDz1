@@ -627,7 +627,7 @@ fun AdminDashboardScreen(
                                             if (req.receiptImageUri.isNotBlank()) {
                                                 OutlinedButton(
                                                     onClick = {
-                                                        if (req.receiptImageUri.startsWith("http://") || req.receiptImageUri.startsWith("https://")) {
+                                                        if (req.receiptImageUri.startsWith("http://") || req.receiptImageUri.startsWith("https://") || req.receiptImageUri.startsWith("data:")) {
                                                             previewReceiptUrl = req.receiptImageUri
                                                         } else {
                                                             viewModel.resolveReceiptUrl(req.receiptImageUri) { resolved ->

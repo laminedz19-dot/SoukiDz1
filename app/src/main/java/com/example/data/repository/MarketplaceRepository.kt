@@ -1,7 +1,10 @@
 package com.example.data.repository
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
+import android.util.Base64
 import com.example.data.local.AppDatabase
 import com.example.data.local.ChatMessageEntity
 import com.example.data.local.FavoriteEntity
@@ -22,6 +25,7 @@ import com.example.data.remote.storage.FirebaseStorageService
 import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import java.io.ByteArrayOutputStream
 import java.util.UUID
 
 class MarketplaceRepository(
@@ -264,11 +268,20 @@ class MarketplaceRepository(
                 requestId = requestId,
                 imageUri = localUri
             )
-            if (uploadResult.isFailure) {
-                val uploadErr = uploadResult.exceptionOrNull()
-                return Result.failure(IllegalStateException("فشل رفع صورة الوصل إلى Firebase Storage: ${uploadErr?.message ?: "خطأ غير معروف"}"))
+            if (uploadResult.isSuccess) {
+                storedReceiptPath = uploadResult.getOrNull().orEmpty()
+            } else {
+                // FALLBACK: If Firebase Storage is not provisioned or requires Blaze,
+                // compress receipt image to compact Base64 JPEG data URI and store in Firestore directly!
+                // Firestore document limit is 1MB, compressed receipt image is ~60-120KB.
+                val base64DataUri = compressImageToBase64DataUri(context, localUri)
+                if (base64DataUri != null) {
+                    storedReceiptPath = base64DataUri
+                } else if (!hasReference) {
+                    val uploadErr = uploadResult.exceptionOrNull()
+                    return Result.failure(IllegalStateException("تعذر رفع أو ضغط صورة الوصل: ${uploadErr?.message ?: "خطأ في معالجة الصورة"}. يرجى إدخال رقم مرجع العملية بدلاً منها."))
+                }
             }
-            storedReceiptPath = uploadResult.getOrNull().orEmpty()
         }
 
         // 7. Extract user profile info for admin display
@@ -290,7 +303,7 @@ class MarketplaceRepository(
             amountDzd = amount,
             provider = provider,
             reference = reference.trim(),
-            receiptImageUri = storedReceiptPath, // Storage path, NOT public URL
+            receiptImageUri = storedReceiptPath, // Storage path or Base64 data URI
             status = "PENDING",
             adminNote = "",
             createdAt = null, // Set via @ServerTimestamp on Firestore
@@ -300,8 +313,8 @@ class MarketplaceRepository(
         // 9. Save to Firestore topUpRequests/{requestId}
         val firestoreResult = firestoreService.submitTopUpRequest(firestoreReq)
         if (firestoreResult.isFailure) {
-            // Rollback: delete uploaded receipt if Firestore write fails
-            if (storedReceiptPath.isNotBlank()) {
+            // Rollback: delete uploaded receipt if Firestore write fails (only for Cloud Storage paths)
+            if (storedReceiptPath.isNotBlank() && !storedReceiptPath.startsWith("data:")) {
                 try {
                     storageService.deleteReceiptByPath(storedReceiptPath)
                 } catch (delErr: Exception) {
@@ -334,6 +347,50 @@ class MarketplaceRepository(
         }
 
         return Result.success("تم إرسال طلب الشحن بنجاح! سيتم التحقق من الوصل واعتماد الرصيد.")
+    }
+
+    /**
+     * Compresses a local image Uri into a compact JPEG Base64 data URI (data:image/jpeg;base64,...).
+     * Keeps the file size small (<150KB) so it safely fits within Firestore's 1MB document limit
+     * without needing Firebase Cloud Storage or a Blaze billing plan.
+     */
+    private fun compressImageToBase64DataUri(context: Context, uri: Uri): String? {
+        return try {
+            val inputStream = context.contentResolver.openInputStream(uri) ?: return null
+            val originalBitmap = BitmapFactory.decodeStream(inputStream)
+            inputStream.close()
+            if (originalBitmap == null) return null
+
+            // Scale down to max 800x800 for optimal readability and tiny storage footprint
+            val maxDimension = 800
+            val width = originalBitmap.width
+            val height = originalBitmap.height
+            val scale = if (width > height) {
+                if (width > maxDimension) maxDimension.toFloat() / width else 1f
+            } else {
+                if (height > maxDimension) maxDimension.toFloat() / height else 1f
+            }
+
+            val scaledBitmap = if (scale < 1f) {
+                Bitmap.createScaledBitmap(
+                    originalBitmap,
+                    (width * scale).toInt().coerceAtLeast(1),
+                    (height * scale).toInt().coerceAtLeast(1),
+                    true
+                )
+            } else {
+                originalBitmap
+            }
+
+            val outputStream = ByteArrayOutputStream()
+            scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 70, outputStream)
+            val byteArray = outputStream.toByteArray()
+            val base64 = Base64.encodeToString(byteArray, Base64.NO_WRAP)
+            "data:image/jpeg;base64,$base64"
+        } catch (e: Exception) {
+            android.util.Log.e("MarketplaceRepository", "Error compressing receipt image: ${e.message}", e)
+            null
+        }
     }
 
     suspend fun approveTopUpRequest(requestId: String, adminNote: String = "تم التحقق من الوصل بنجاح"): Result<String> {

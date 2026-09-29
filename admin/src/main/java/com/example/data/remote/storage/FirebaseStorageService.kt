@@ -493,7 +493,7 @@ class FirebaseStorageService(
         if (storagePathOrUrl.isBlank()) {
             return Result.failure(IllegalArgumentException("مسار الصورة فارغ"))
         }
-        if (storagePathOrUrl.startsWith("http://") || storagePathOrUrl.startsWith("https://")) {
+        if (storagePathOrUrl.startsWith("http://") || storagePathOrUrl.startsWith("https://") || storagePathOrUrl.startsWith("data:")) {
             return Result.success(storagePathOrUrl)
         }
         val st = storage ?: return Result.failure(IllegalStateException("خدمة التخزين السحابي Firebase Storage غير مهيأة"))
