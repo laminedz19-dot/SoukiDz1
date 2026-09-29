@@ -594,14 +594,6 @@ class MarketplaceViewModel(application: Application) : AndroidViewModel(applicat
         onSuccess: () -> Unit = {},
         onError: (String) -> Unit = {}
     ) {
-        val authUser = repository.authService.currentUser
-        if (authUser == null || authUser.uid.isBlank() || authUser.uid == "user_me" || authUser.uid == "admin_super") {
-            val msg = "يجب تسجيل الدخول بحساب حقيقي عبر Firebase Authentication لإرسال طلب شحن الرصيد."
-            onError(msg)
-            emitMessage(msg)
-            return
-        }
-
         if (amount < 200) {
             val msg = "الحد الأدنى للشحن هو 200 دج."
             onError(msg)

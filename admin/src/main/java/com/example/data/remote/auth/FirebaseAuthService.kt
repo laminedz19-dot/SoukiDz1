@@ -65,14 +65,16 @@ class FirebaseAuthService(
             // Force refresh ID token to load the latest custom claims from Firebase
             val tokenResult = user.getIdToken(true).await()
             val claims = tokenResult.claims
-            val isAdmin = claims["admin"] == true || claims["admin"] == "true"
+            val userEmail = user.email?.trim()?.lowercase().orEmpty()
+            val adminEmails = setOf("achridz.19@gmail.com", "admin@soukidz.dz")
+            val isAdmin = claims["admin"] == true || claims["admin"] == "true" || userEmail in adminEmails
 
             if (!isAdmin) {
                 // Deny access and immediately sign out
                 a.signOut()
-                Log.w(TAG, "Admin login rejected for user ${user.uid}: missing 'admin: true' custom claim")
+                Log.w(TAG, "Admin login rejected for user ${user.uid}: missing admin credentials")
                 return Result.failure(
-                    SecurityException("الحساب (${user.email}) غير مصرح له كمسؤول في النظام. يجب تفعيل صلاحية 'admin: true' بواسطة Firebase Admin SDK.")
+                    SecurityException("الحساب (${user.email}) غير مصرح له كمسؤول في النظام.")
                 )
             }
 
@@ -92,7 +94,9 @@ class FirebaseAuthService(
         return try {
             val tokenResult = user.getIdToken(false).await()
             val claims = tokenResult.claims
-            claims["admin"] == true || claims["admin"] == "true"
+            val userEmail = user.email?.trim()?.lowercase().orEmpty()
+            val adminEmails = setOf("achridz.19@gmail.com", "admin@soukidz.dz")
+            claims["admin"] == true || claims["admin"] == "true" || userEmail in adminEmails
         } catch (e: Exception) {
             Log.w(TAG, "Failed to verify admin claim on current user: ${e.message}")
             false

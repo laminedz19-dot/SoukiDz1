@@ -174,7 +174,6 @@ class FirestoreService(
         return callbackFlow {
             val listener = db.collection(COLLECTION_TOP_UP_REQUESTS)
                 .whereEqualTo("userId", userId)
-                .orderBy("createdAt", Query.Direction.DESCENDING)
                 .addSnapshotListener { snapshot, error ->
                     if (error != null) {
                         Log.e(TAG, "Snapshot listener error for user $userId top-up requests: ${error.message}", error)
@@ -183,6 +182,7 @@ class FirestoreService(
                     }
                     if (snapshot != null) {
                         val list = snapshot.documents.mapNotNull { it.toObject(FirestoreTopUpRequest::class.java) }
+                            .sortedByDescending { it.createdAt?.time ?: 0L }
                         trySend(Result.success(list))
                     }
                 }
@@ -194,7 +194,6 @@ class FirestoreService(
         val db = firestore ?: return kotlinx.coroutines.flow.flowOf(Result.failure(IllegalStateException("خدمة Firestore غير مهيأة")))
         return callbackFlow {
             val listener = db.collection(COLLECTION_TOP_UP_REQUESTS)
-                .orderBy("createdAt", Query.Direction.DESCENDING)
                 .addSnapshotListener { snapshot, error ->
                     if (error != null) {
                         Log.e(TAG, "Snapshot listener error for all top-up requests: ${error.message}", error)
@@ -203,6 +202,7 @@ class FirestoreService(
                     }
                     if (snapshot != null) {
                         val list = snapshot.documents.mapNotNull { it.toObject(FirestoreTopUpRequest::class.java) }
+                            .sortedByDescending { it.createdAt?.time ?: 0L }
                         trySend(Result.success(list))
                     }
                 }

@@ -51,6 +51,18 @@ class FirebaseAuthService(
         }
     }
 
+    suspend fun signInAnonymously(): Result<FirebaseUser?> {
+        val a = auth ?: return Result.failure(IllegalStateException("Firebase Auth is not initialized"))
+        return try {
+            val result = a.signInAnonymously().await()
+            Log.i(TAG, "Signed in anonymously with UID: ${result.user?.uid}")
+            Result.success(result.user)
+        } catch (e: Exception) {
+            Log.e(TAG, "Anonymous sign in error: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
     suspend fun sendPasswordReset(email: String): Result<Unit> {
         val a = auth ?: return Result.failure(IllegalStateException("Firebase Auth is not initialized"))
         return try {
