@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
@@ -59,6 +60,23 @@ class MarketplaceViewModel(application: Application) : AndroidViewModel(applicat
             } catch (_: Exception) {}
             repository.authService.currentUserId?.let { uid ->
                 _currentUserId.value = uid
+            }
+        }
+        viewModelScope.launch {
+            _currentUserId.collectLatest { uid ->
+                if (uid.isNotBlank() && uid != "user_me" && uid != "admin_super") {
+                    try {
+                        repository.getUserWalletFromFirestore(uid).collect { res ->
+                            if (res.isSuccess) {
+                                res.getOrNull()?.let { remoteWallet ->
+                                    repository.syncWalletLocally(remoteWallet.toWalletEntity())
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.w("MarketplaceViewModel", "Wallet sync exception: ${e.message}")
+                    }
+                }
             }
         }
     }

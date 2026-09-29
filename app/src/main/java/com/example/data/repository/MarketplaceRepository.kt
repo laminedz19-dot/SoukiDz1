@@ -494,6 +494,13 @@ class MarketplaceRepository(
         return firestoreService.getUserWalletFlow(userId)
     }
 
+    suspend fun syncWalletLocally(wallet: WalletEntity) {
+        val current = db.walletDao().getWalletDirect(wallet.userId)
+        if (current == null || current.balanceDzd != wallet.balanceDzd) {
+            db.walletDao().insertOrUpdateWallet(wallet)
+        }
+    }
+
     // Users
     fun getUser(id: String): Flow<UserEntity?> = db.userDao().getUserById(id)
     suspend fun getUserDirect(id: String): UserEntity? = db.userDao().getUserByIdDirect(id)

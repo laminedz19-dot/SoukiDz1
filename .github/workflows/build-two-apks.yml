@@ -69,12 +69,18 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/main'
         with:
-          tag_name: v1.0.2
-          name: "Souqi DZ APKs (تحميل مباشر بدون فك ضغط)"
+          tag_name: v1.0.3
+          name: "Souqi DZ APKs v1.0.3 (تحديث معالجة وصولات الدفع)"
+          make_latest: true
           body: |
             ### تحميل مباشر لملفات APK بدون الحاجة لفك الضغط:
             - اضغط مباشرة على ملف **SouqiDz-User.apk** أدناه لتنزيله وتثبيته فوراً.
             - اضغط مباشرة على ملف **SouqiDz-Admin.apk** أدناه لتنزيل تطبيق الإدارة وتثبيته فوراً.
+            
+            **أبرز التحديثات في v1.0.3:**
+            - تحسين تسليم وصولات شحن الرصيد والتحقق منها مباشرة في السحابة.
+            - مزامنة فورية لرصيد المحفظة بين تطبيق الزبائن وتطبيق الأدمين.
+            - رفع مهلة رفع الصور ومعالجة أخطاء الصلاحيات بأمان كامل.
           files: |
             dist-apks/SouqiDz-User.apk
             dist-apks/SouqiDz-Admin.apk
