@@ -50,6 +50,45 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // Top-up requests for balance recharging
+    match /topUpRequests/{requestId} {
+      function isValidProvider(provider) {
+        return provider in ['BARIDIMOB', 'CCP', 'EDAHABIA', 'CIB'];
+      }
+
+      function isValidTopUpCreate() {
+        let d = request.resource.data;
+        return d.userId == request.auth.uid
+          && d.id == requestId
+          && d.amountDzd is int && d.amountDzd >= 200
+          && isValidProvider(d.provider)
+          && d.status == 'PENDING'
+          && d.adminNote == ''
+          && d.reviewedAt == null
+          && (d.receiptImageUri is string || d.reference is string)
+          && (d.receiptImageUri.size() > 0 || d.reference.size() > 0);
+      }
+
+      // Read: Users can only read their own requests; Admin can read all
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+
+      // Create: Authenticated users can only create a pending request for themselves
+      allow create: if isAuthenticated() && isValidTopUpCreate();
+
+      // Update: ONLY admin can update, and ONLY transition from PENDING to APPROVED or REJECTED
+      // Admin cannot change user identity, amount, provider, reference, or receipt image
+      allow update: if isAdmin()
+        && resource.data.status == 'PENDING'
+        && request.resource.data.status in ['APPROVED', 'REJECTED']
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'adminNote', 'reviewedAt'])
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.amountDzd == resource.data.amountDzd
+        && request.resource.data.id == resource.data.id;
+
+      // Delete: Strictly forbidden for everyone
+      allow delete: if false;
+    }
+
     // Platform settings
     match /settings/{settingId} {
       allow read: if true;

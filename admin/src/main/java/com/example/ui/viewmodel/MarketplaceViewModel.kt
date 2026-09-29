@@ -160,8 +160,27 @@ class MarketplaceViewModel(application: Application) : AndroidViewModel(applicat
         repository.getUserTopUpRequests(id)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val allTopUpRequests: StateFlow<List<TopUpRequestEntity>> = repository.getAllTopUpRequests()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    sealed interface TopUpListUiState {
+        data object Loading : TopUpListUiState
+        data class Success(val requests: List<TopUpRequestEntity>) : TopUpListUiState
+        data class Error(val message: String) : TopUpListUiState
+    }
+
+    val topUpListUiState: StateFlow<TopUpListUiState> = repository.getAllTopUpRequestsFromFirestore().map { result ->
+        if (result.isSuccess) {
+            TopUpListUiState.Success(result.getOrNull().orEmpty())
+        } else {
+            val err = result.exceptionOrNull()?.message ?: "خطأ أثناء تحميل طلبات الشحن من Firebase Firestore"
+            TopUpListUiState.Error(err)
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), TopUpListUiState.Loading)
+
+    val allTopUpRequests: StateFlow<List<TopUpRequestEntity>> = topUpListUiState.map { state ->
+        when (state) {
+            is TopUpListUiState.Success -> state.requests
+            else -> emptyList()
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val platformSettings: StateFlow<PlatformSettingsEntity> = repository.getPlatformSettings()
         .combine(MutableStateFlow(PlatformSettingsEntity())) { settings, default ->
@@ -602,24 +621,41 @@ class MarketplaceViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    private val _isProcessingTopUp = MutableStateFlow<String?>(null)
+    val isProcessingTopUp: StateFlow<String?> = _isProcessingTopUp.asStateFlow()
+
     fun approveTopUpRequest(requestId: String, adminNote: String = "") {
+        if (_isProcessingTopUp.value != null) return // Prevent double click
+        _isProcessingTopUp.value = requestId
         viewModelScope.launch {
-            val result = repository.approveTopUpRequest(requestId, adminNote)
-            result.onSuccess { msg ->
-                emitMessage(msg)
-            }.onFailure { err ->
-                emitMessage(err.message ?: "فشلت العملية")
+            try {
+                val result = repository.approveTopUpRequest(requestId, adminNote)
+                result.onSuccess { msg ->
+                    emitMessage(msg)
+                    logAdminAction("قبول طلب شحن", "تم قبول طلب الشحن $requestId وتحديث الحالة في Firestore")
+                }.onFailure { err ->
+                    emitMessage(err.message ?: "فشلت عملية قبول الطلب")
+                }
+            } finally {
+                _isProcessingTopUp.value = null
             }
         }
     }
 
     fun rejectTopUpRequest(requestId: String, reason: String = "") {
+        if (_isProcessingTopUp.value != null) return // Prevent double click
+        _isProcessingTopUp.value = requestId
         viewModelScope.launch {
-            val result = repository.rejectTopUpRequest(requestId, reason)
-            result.onSuccess { msg ->
-                emitMessage(msg)
-            }.onFailure { err ->
-                emitMessage(err.message ?: "فشلت العملية")
+            try {
+                val result = repository.rejectTopUpRequest(requestId, reason)
+                result.onSuccess { msg ->
+                    emitMessage(msg)
+                    logAdminAction("رفض طلب شحن", "تم رفض طلب الشحن $requestId وتحديث الحالة في Firestore")
+                }.onFailure { err ->
+                    emitMessage(err.message ?: "فشلت عملية رفض الطلب")
+                }
+            } finally {
+                _isProcessingTopUp.value = null
             }
         }
     }
@@ -933,32 +969,48 @@ class MarketplaceViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    fun getAdminPin(): String {
-        val prefs = getApplication<Application>().getSharedPreferences("souqi_admin_prefs", android.content.Context.MODE_PRIVATE)
-        return prefs.getString("admin_pin_code", "2026") ?: "2026"
+    /**
+     * Authenticates the admin using Firebase Authentication (Email + Password).
+     * Enforces token force-refresh and verifies the custom claim admin == true.
+     */
+    fun loginAdmin(
+        email: String,
+        pass: String,
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        if (email.isBlank() || pass.isBlank()) {
+            val msg = "يرجى إدخال البريد الإلكتروني وكلمة المرور للمشرف"
+            emitMessage(msg)
+            onError(msg)
+            return
+        }
+
+        viewModelScope.launch {
+            val result = repository.authService.loginAdminWithClaims(email, pass)
+            result.onSuccess { user ->
+                _isAdminSessionActive.value = true
+                _currentUserId.value = user.uid
+                logAdminAction("تسجيل دخول المشرف", "تم توثيق المشرف (${user.email}) بنجاح عبر Firebase Auth")
+                emitMessage("مرحباً بك في لوحة الإدارة ✓")
+                withContext(Dispatchers.Main) { onSuccess() }
+            }.onFailure { err ->
+                val errorMsg = err.message ?: "فشلت عملية تسجيل دخول المشرف"
+                emitMessage(errorMsg)
+                withContext(Dispatchers.Main) { onError(errorMsg) }
+            }
+        }
     }
 
-    fun updateAdminPin(oldPin: String, newPin: String): Boolean {
-        val current = getAdminPin()
-        if (oldPin.trim() != current.trim()) {
-            emitMessage("الرمز السري الحالي غير صحيح!")
-            return false
+    /**
+     * Resolves a Firebase Storage receipt path into an authenticated download URL.
+     */
+    fun resolveReceiptUrl(storagePathOrUrl: String, onResult: (String?) -> Unit) {
+        viewModelScope.launch {
+            val result = repository.storageService.getReceiptDownloadUrl(storagePathOrUrl)
+            withContext(Dispatchers.Main) {
+                onResult(result.getOrNull())
+            }
         }
-        if (newPin.trim().length < 4) {
-            emitMessage("يجب أن يتكون الرمز الجديد من 4 أرقام على الأقل!")
-            return false
-        }
-        val prefs = getApplication<Application>().getSharedPreferences("souqi_admin_prefs", android.content.Context.MODE_PRIVATE)
-        prefs.edit().putString("admin_pin_code", newPin.trim()).apply()
-        logAdminAction("تغيير رمز الدخول للإدارة", "تم تغيير رمز الإشراف PIN بنجاح")
-        emitMessage("تم تحديث رمز دخول الإشراف بنجاح")
-        return true
-    }
-
-    fun resetAdminPinToDefault() {
-        val prefs = getApplication<Application>().getSharedPreferences("souqi_admin_prefs", android.content.Context.MODE_PRIVATE)
-        prefs.edit().putString("admin_pin_code", "2026").apply()
-        logAdminAction("استعادة رمز الإدارة الافتراضي", "تمت استعادة 2026")
-        emitMessage("تمت استعادة الرمز الافتراضي (2026)")
     }
 }

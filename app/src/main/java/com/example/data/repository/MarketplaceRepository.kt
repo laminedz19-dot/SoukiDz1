@@ -1,5 +1,7 @@
 package com.example.data.repository
 
+import android.content.Context
+import android.net.Uri
 import com.example.data.local.AppDatabase
 import com.example.data.local.ChatMessageEntity
 import com.example.data.local.FavoriteEntity
@@ -15,9 +17,11 @@ import com.example.data.local.TopUpRequestEntity
 import com.example.data.remote.auth.FirebaseAuthService
 import com.example.data.remote.firestore.FirestorePayment
 import com.example.data.remote.firestore.FirestoreService
+import com.example.data.remote.firestore.FirestoreTopUpRequest
 import com.example.data.remote.storage.FirebaseStorageService
 import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import java.util.UUID
 
 class MarketplaceRepository(
@@ -154,34 +158,182 @@ class MarketplaceRepository(
     fun getUserTopUpRequests(userId: String): Flow<List<TopUpRequestEntity>> =
         db.topUpRequestDao().getUserRequests(userId)
 
+    /**
+     * Listens directly to Firestore topUpRequests for the current user in real-time.
+     * Caches received items into Room so offline mode remains functional.
+     * Emits Result.failure if Firestore listener fails, preserving accurate error states.
+     */
+    fun getUserTopUpRequestsFromFirestore(userId: String): Flow<Result<List<TopUpRequestEntity>>> {
+        return firestoreService.getUserTopUpRequestsFlow(userId).map { result ->
+            if (result.isSuccess) {
+                val firestoreList = result.getOrNull().orEmpty()
+                val entities = firestoreList.map { it.toTopUpRequestEntity() }
+                try {
+                    for (entity in entities) {
+                        val localExisting = db.topUpRequestDao().getRequestById(entity.id)
+                        val wasNotApproved = localExisting == null || localExisting.status != "APPROVED"
+                        if (entity.status == "APPROVED" && wasNotApproved) {
+                            // Idempotent credit in local Room wallet for the approved top-up request
+                            val wallet = db.walletDao().getWalletDirect(userId)
+                            if (wallet == null) {
+                                db.walletDao().insertOrUpdateWallet(
+                                    WalletEntity(userId = userId, balanceDzd = 0, updatedAt = System.currentTimeMillis())
+                                )
+                            }
+                            db.walletDao().creditWallet(userId, entity.amountDzd, System.currentTimeMillis())
+                            db.walletDao().insertTransaction(
+                                WalletTransactionEntity(
+                                    id = "topup_${entity.id}",
+                                    userId = userId,
+                                    type = "TOPUP",
+                                    amount = entity.amountDzd,
+                                    description = "شحن رصيد معتمد (${entity.provider})",
+                                    referenceId = entity.id,
+                                    timestamp = if (entity.reviewedAt > 0) entity.reviewedAt else System.currentTimeMillis()
+                                )
+                            )
+                        }
+                        db.topUpRequestDao().insertRequest(entity)
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.w("MarketplaceRepository", "Failed to cache user top-up requests in Room: ${e.message}")
+                }
+                Result.success(entities)
+            } else {
+                Result.failure(result.exceptionOrNull() ?: Exception("خطأ غير معروف أثناء مزامنة طلبات الشحن"))
+            }
+        }
+    }
+
     fun getAllTopUpRequests(): Flow<List<TopUpRequestEntity>> =
         db.topUpRequestDao().getAllRequests()
 
+    /**
+     * Submits a top-up request strictly adhering to security invariants:
+     * 1. Current user must be authenticated with Firebase Auth (uid != null, != "user_me").
+     * 2. Allowed payment providers: BARIDIMOB, CCP, EDAHABIA, CIB.
+     * 3. Minimum amount is 200 DZD.
+     * 4. Must provide at least a transfer reference or receipt image.
+     * 5. If receipt image is present, upload first to Firebase Storage at topUpReceipts/{uid}/{requestId}/receipt.{ext}.
+     * 6. Write request to Firestore at topUpRequests/{requestId}.
+     * 7. If Firestore fails, roll back and delete the uploaded Storage receipt.
+     * 8. Update Room cache ONLY after Firestore succeeds.
+     */
     suspend fun submitTopUpRequest(
-        userId: String,
+        context: Context,
         amount: Int,
         provider: String,
         reference: String,
-        receiptImageUri: String
+        receiptImageUriString: String
     ): Result<String> {
-        val user = db.userDao().getUserByIdDirect(userId)
-        val requestId = "req_" + UUID.randomUUID().toString().replace("-", "").take(10)
-        val request = TopUpRequestEntity(
+        // 1. Verify user authentication via Firebase Auth
+        val currentFirebaseUser = authService.currentUser
+        val uid = currentFirebaseUser?.uid
+        if (currentFirebaseUser == null || uid.isNullOrBlank() || uid == "user_me" || uid == "admin_super") {
+            return Result.failure(IllegalStateException("يجب تسجيل الدخول بحساب حقيقي عبر Firebase Authentication لإرسال طلب شحن الرصيد."))
+        }
+
+        // 2. Validate amount
+        if (amount < 200) {
+            return Result.failure(IllegalArgumentException("الحد الأدنى لشحن الرصيد هو 200 دج."))
+        }
+
+        // 3. Validate provider
+        val allowedProviders = setOf("BARIDIMOB", "CCP", "EDAHABIA", "CIB")
+        if (provider !in allowedProviders) {
+            return Result.failure(IllegalArgumentException("مزود الدفع المحدد غير مدعوم ($provider). المزودون المسموح بهم فقط: BARIDIMOB, CCP, EDAHABIA, CIB."))
+        }
+
+        // 4. Validate that at least reference or receipt image is provided
+        val hasReference = reference.isNotBlank()
+        val hasReceipt = receiptImageUriString.isNotBlank()
+        if (!hasReference && !hasReceipt) {
+            return Result.failure(IllegalArgumentException("يجب إرفاق صورة وصل التحويل أو إدخال رقم مرجع العملية على الأقل."))
+        }
+
+        // 5. Generate requestId before uploading image
+        val requestId = "req_" + UUID.randomUUID().toString().replace("-", "").take(16)
+
+        // 6. Handle receipt image upload if present
+        var storedReceiptPath = ""
+        if (hasReceipt) {
+            val localUri = Uri.parse(receiptImageUriString)
+            val uploadResult = storageService.uploadTopUpReceipt(
+                context = context,
+                userId = uid,
+                requestId = requestId,
+                imageUri = localUri
+            )
+            if (uploadResult.isFailure) {
+                val uploadErr = uploadResult.exceptionOrNull()
+                return Result.failure(IllegalStateException("فشل رفع صورة الوصل إلى Firebase Storage: ${uploadErr?.message ?: "خطأ غير معروف"}"))
+            }
+            storedReceiptPath = uploadResult.getOrNull().orEmpty()
+        }
+
+        // 7. Extract user profile info for admin display
+        val localUser = db.userDao().getUserByIdDirect(uid)
+        val userName = localUser?.name?.ifBlank { null }
+            ?: currentFirebaseUser.displayName?.ifBlank { null }
+            ?: currentFirebaseUser.email?.substringBefore("@")
+            ?: "مستخدم سوقي"
+        val userPhone = localUser?.phone?.ifBlank { null }
+            ?: currentFirebaseUser.phoneNumber
+            ?: ""
+
+        // 8. Build Firestore object
+        val firestoreReq = FirestoreTopUpRequest(
             id = requestId,
-            userId = userId,
-            userName = user?.name ?: "مستخدم سوقي",
-            userPhone = user?.phone ?: "",
+            userId = uid,
+            userName = userName,
+            userPhone = userPhone,
             amountDzd = amount,
             provider = provider,
-            reference = reference,
-            receiptImageUri = receiptImageUri,
+            reference = reference.trim(),
+            receiptImageUri = storedReceiptPath, // Storage path, NOT public URL
+            status = "PENDING",
+            adminNote = "",
+            createdAt = null, // Set via @ServerTimestamp on Firestore
+            reviewedAt = null
+        )
+
+        // 9. Save to Firestore topUpRequests/{requestId}
+        val firestoreResult = firestoreService.submitTopUpRequest(firestoreReq)
+        if (firestoreResult.isFailure) {
+            // Rollback: delete uploaded receipt if Firestore write fails
+            if (storedReceiptPath.isNotBlank()) {
+                try {
+                    storageService.deleteReceiptByPath(storedReceiptPath)
+                } catch (delErr: Exception) {
+                    android.util.Log.w("MarketplaceRepository", "Failed to cleanup orphan receipt $storedReceiptPath: ${delErr.message}")
+                }
+            }
+            val firestoreErr = firestoreResult.exceptionOrNull()
+            return Result.failure(IllegalStateException("فشل حفظ طلب الشحن في السحابة: ${firestoreErr?.message ?: "خطأ في الاتصال بقاعدة البيانات"}"))
+        }
+
+        // 10. Update Room as local cache ONLY AFTER Firestore succeeds
+        val cachedEntity = TopUpRequestEntity(
+            id = requestId,
+            userId = uid,
+            userName = userName,
+            userPhone = userPhone,
+            amountDzd = amount,
+            provider = provider,
+            reference = reference.trim(),
+            receiptImageUri = storedReceiptPath,
             status = "PENDING",
             adminNote = "",
             createdAt = System.currentTimeMillis(),
             reviewedAt = 0L
         )
-        db.topUpRequestDao().insertRequest(request)
-        return Result.success("تم إرسال طلب الشحن بنجاح! سيقوم المشرف بالتحقق من الوصل وإضافة الرصيد إلى محفظتك.")
+        try {
+            db.topUpRequestDao().insertRequest(cachedEntity)
+        } catch (dbErr: Exception) {
+            android.util.Log.w("MarketplaceRepository", "Failed to cache request locally: ${dbErr.message}")
+        }
+
+        return Result.success("تم إرسال طلب الشحن بنجاح! سيتم التحقق من الوصل واعتماد الرصيد.")
     }
 
     suspend fun approveTopUpRequest(requestId: String, adminNote: String = "تم التحقق من الوصل بنجاح"): Result<String> {

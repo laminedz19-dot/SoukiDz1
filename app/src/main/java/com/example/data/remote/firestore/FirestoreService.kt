@@ -4,6 +4,7 @@ import android.util.Log
 import com.example.data.local.ListingEntity
 import com.example.data.local.UserEntity
 import com.google.firebase.FirebaseApp
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import kotlinx.coroutines.channels.awaitClose
@@ -21,6 +22,7 @@ class FirestoreService(
         const val COLLECTION_LISTINGS = "listings"
         const val COLLECTION_PAYMENTS = "payments"
         const val COLLECTION_SETTINGS = "settings"
+        const val COLLECTION_TOP_UP_REQUESTS = "topUpRequests"
     }
 
     private val firestore: FirebaseFirestore? = customFirestore ?: run {
@@ -146,6 +148,92 @@ class FirestoreService(
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e(TAG, "Error recording payment in Firestore: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    // --- TOP UP REQUESTS COLLECTION ---
+
+    suspend fun submitTopUpRequest(request: FirestoreTopUpRequest): Result<Unit> {
+        val db = firestore ?: return Result.failure(IllegalStateException("خدمة Firestore غير متصلة أو غير مهيأة"))
+        return try {
+            db.collection(COLLECTION_TOP_UP_REQUESTS)
+                .document(request.id)
+                .set(request)
+                .await()
+            Log.i(TAG, "Successfully submitted top-up request: ${request.id}")
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error submitting top-up request to Firestore: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    fun getUserTopUpRequestsFlow(userId: String): Flow<Result<List<FirestoreTopUpRequest>>> {
+        val db = firestore ?: return kotlinx.coroutines.flow.flowOf(Result.failure(IllegalStateException("خدمة Firestore غير مهيأة")))
+        return callbackFlow {
+            val listener = db.collection(COLLECTION_TOP_UP_REQUESTS)
+                .whereEqualTo("userId", userId)
+                .orderBy("createdAt", Query.Direction.DESCENDING)
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        Log.e(TAG, "Snapshot listener error for user $userId top-up requests: ${error.message}", error)
+                        trySend(Result.failure(error))
+                        return@addSnapshotListener
+                    }
+                    if (snapshot != null) {
+                        val list = snapshot.documents.mapNotNull { it.toObject(FirestoreTopUpRequest::class.java) }
+                        trySend(Result.success(list))
+                    }
+                }
+            awaitClose { listener.remove() }
+        }
+    }
+
+    fun getAllTopUpRequestsFlow(): Flow<Result<List<FirestoreTopUpRequest>>> {
+        val db = firestore ?: return kotlinx.coroutines.flow.flowOf(Result.failure(IllegalStateException("خدمة Firestore غير مهيأة")))
+        return callbackFlow {
+            val listener = db.collection(COLLECTION_TOP_UP_REQUESTS)
+                .orderBy("createdAt", Query.Direction.DESCENDING)
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        Log.e(TAG, "Snapshot listener error for all top-up requests: ${error.message}", error)
+                        trySend(Result.failure(error))
+                        return@addSnapshotListener
+                    }
+                    if (snapshot != null) {
+                        val list = snapshot.documents.mapNotNull { it.toObject(FirestoreTopUpRequest::class.java) }
+                        trySend(Result.success(list))
+                    }
+                }
+            awaitClose { listener.remove() }
+        }
+    }
+
+    suspend fun updateTopUpStatus(requestId: String, newStatus: String, adminNote: String): Result<Unit> {
+        val db = firestore ?: return Result.failure(IllegalStateException("خدمة Firestore غير متصلة أو غير مهيأة"))
+        return try {
+            db.runTransaction { transaction ->
+                val docRef = db.collection(COLLECTION_TOP_UP_REQUESTS).document(requestId)
+                val snapshot = transaction.get(docRef)
+                if (!snapshot.exists()) {
+                    throw IllegalStateException("طلب شحن الرصيد غير موجود في قاعدة البيانات")
+                }
+                val currentStatus = snapshot.getString("status")
+                if (currentStatus != "PENDING") {
+                    throw IllegalStateException("لا يمكن تعديل الطلب لأنه تمت معالجته مسبقاً (الحالة الحالية: $currentStatus)")
+                }
+                val updates = mapOf(
+                    "status" to newStatus,
+                    "adminNote" to adminNote,
+                    "reviewedAt" to FieldValue.serverTimestamp()
+                )
+                transaction.update(docRef, updates)
+            }.await()
+            Log.i(TAG, "Successfully updated top-up request $requestId to $newStatus")
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updating top-up request $requestId status: ${e.message}", e)
             Result.failure(e)
         }
     }

@@ -1,7 +1,6 @@
 package com.example
 
 import android.os.Bundle
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -11,7 +10,6 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,27 +26,23 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AdminPanelSettings
-import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
-import androidx.compose.material.icons.filled.LockReset
-import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -58,7 +52,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -69,9 +62,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.screens.admin.AdminDashboardScreen
-import com.example.ui.theme.EmeraldDark
 import com.example.ui.theme.EmeraldPrimary
-import com.example.ui.theme.GoldLight
 import com.example.ui.theme.GoldSecondary
 import com.example.ui.theme.SouqiTheme
 import com.example.ui.viewmodel.MarketplaceViewModel
@@ -97,6 +88,15 @@ class AdminActivity : ComponentActivity() {
                         }
                     }
 
+                    // Check if current user already has valid admin claims on startup
+                    LaunchedEffect(Unit) {
+                        val isCurrentAdmin = viewModel.repository.authService.checkIsCurrentAdmin()
+                        if (isCurrentAdmin) {
+                            isAuthenticated = true
+                            viewModel.activateAdminSession()
+                        }
+                    }
+
                     Scaffold(
                         modifier = Modifier.fillMaxSize(),
                         snackbarHost = { SnackbarHost(snackbarHostState) }
@@ -113,11 +113,15 @@ class AdminActivity : ComponentActivity() {
                             ) { authed ->
                                 if (authed) {
                                     BackHandler {
+                                        viewModel.repository.authService.signOut()
+                                        viewModel.exitAdminSession()
                                         isAuthenticated = false
                                     }
                                     AdminDashboardScreen(
                                         viewModel = viewModel,
                                         onBack = {
+                                            viewModel.repository.authService.signOut()
+                                            viewModel.exitAdminSession()
                                             isAuthenticated = false
                                             finish()
                                         }
@@ -127,9 +131,7 @@ class AdminActivity : ComponentActivity() {
                                         viewModel = viewModel,
                                         onSuccess = {
                                             isAuthenticated = true
-                                            viewModel.activateAdminSession()
-                                        },
-                                        onExit = { finish() }
+                                        }
                                     )
                                 }
                             }
@@ -141,24 +143,20 @@ class AdminActivity : ComponentActivity() {
     }
 }
 
+/**
+ * Production-ready Firebase Authentication gate for Platform Administrators.
+ * Authenticates via Email + Password and verifies custom claim "admin: true"
+ * after forcing token refresh. No local PIN or hardcoded credentials.
+ */
 @Composable
 fun AdminLoginGate(
     viewModel: MarketplaceViewModel,
-    onSuccess: () -> Unit,
-    onExit: () -> Unit
+    onSuccess: () -> Unit
 ) {
-    var enteredPin by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    var showChangePinDialog by remember { mutableStateOf(false) }
-
-    val currentPin = viewModel.getAdminPin()
-
-    if (showChangePinDialog) {
-        ChangeAdminPinDialog(
-            viewModel = viewModel,
-            onDismiss = { showChangePinDialog = false }
-        )
-    }
+    var isLoading by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -168,7 +166,7 @@ fun AdminLoginGate(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        // App Shield & Icon
+        // Shield & Admin Icon
         Surface(
             shape = CircleShape,
             color = EmeraldPrimary.copy(alpha = 0.12f),
@@ -196,7 +194,7 @@ fun AdminLoginGate(
         Spacer(modifier = Modifier.height(6.dp))
 
         Text(
-            text = "التطبيق المستقل للمشرفين وإدارة المنصة\nمراجعة وصولات الدفع وحسابات بريدي موب وCCP",
+            text = "بوابة الإدارة المركزية وحماية شحن الرصيد\nالمصادقة السحابية الصارمة عبر Firebase Auth",
             fontSize = 13.sp,
             textAlign = TextAlign.Center,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -221,7 +219,7 @@ fun AdminLoginGate(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "تسجيل دخول المشرف",
+                        text = "تسجيل دخول المسؤول",
                         fontWeight = FontWeight.Bold,
                         fontSize = 15.sp
                     )
@@ -230,55 +228,96 @@ fun AdminLoginGate(
                 Spacer(modifier = Modifier.height(16.dp))
 
                 OutlinedTextField(
-                    value = enteredPin,
+                    value = email,
                     onValueChange = {
-                        enteredPin = it
+                        email = it
                         errorMessage = null
                     },
-                    label = { Text("رمز الدخول (PIN)") },
-                    placeholder = { Text("أدخل رمز الإشراف") },
+                    label = { Text("البريد الإلكتروني للمسؤول") },
+                    placeholder = { Text("admin@soukidz.dz") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                    leadingIcon = {
+                        Icon(Icons.Default.Email, contentDescription = null, modifier = Modifier.size(18.dp))
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isLoading
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = {
+                        password = it
+                        errorMessage = null
+                    },
+                    label = { Text("كلمة المرور") },
+                    placeholder = { Text("••••••••") },
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    leadingIcon = {
+                        Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(18.dp))
+                    },
                     isError = errorMessage != null,
-                    supportingText = errorMessage?.let { { Text(it, color = MaterialTheme.colorScheme.error) } },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isLoading
                 )
+
+                if (errorMessage != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = errorMessage!!,
+                        color = MaterialTheme.colorScheme.error,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(20.dp))
 
                 Button(
                     onClick = {
-                        val activePin = viewModel.getAdminPin()
-                        if (enteredPin.trim() == activePin.trim()) {
-                            onSuccess()
-                        } else {
-                            errorMessage = "رمز الإشراف غير صحيح! يرجى التأكد من الرمز."
+                        if (email.isBlank() || password.isBlank()) {
+                            errorMessage = "يرجى ملء البريد الإلكتروني وكلمة المرور"
+                            return@Button
                         }
+                        isLoading = true
+                        errorMessage = null
+                        viewModel.loginAdmin(
+                            email = email.trim(),
+                            pass = password,
+                            onSuccess = {
+                                isLoading = false
+                                onSuccess()
+                            },
+                            onError = { err ->
+                                isLoading = false
+                                errorMessage = err
+                            }
+                        )
                     },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
-                    shape = RoundedCornerShape(10.dp)
+                    shape = RoundedCornerShape(10.dp),
+                    enabled = !isLoading
                 ) {
-                    Icon(Icons.Default.LockOpen, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("فتح لوحة التحكم", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                OutlinedButton(
-                    onClick = { showChangePinDialog = true },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(44.dp),
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Icon(Icons.Default.Key, contentDescription = null, modifier = Modifier.size(16.dp), tint = EmeraldPrimary)
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("تغيير رمز الدخول للإدارة", fontSize = 13.sp, color = EmeraldPrimary, fontWeight = FontWeight.SemiBold)
+                    if (isLoading) {
+                        CircularProgressIndicator(
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("جاري التحقق من الصلاحيات...", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    } else {
+                        Icon(Icons.Default.LockOpen, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("دخول لوحة الإدارة", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    }
                 }
             }
         }
@@ -298,131 +337,10 @@ fun AdminLoginGate(
             )
             Spacer(modifier = Modifier.width(6.dp))
             Text(
-                text = "قاعدة بيانات مشتركة مشفرة • اتصال محلي ومباشر",
+                text = "محمي بواسطة Firebase Auth Claims (admin: true) • لا توجد أسرار محلية",
                 fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
-}
-
-@Composable
-fun ChangeAdminPinDialog(
-    viewModel: MarketplaceViewModel,
-    onDismiss: () -> Unit
-) {
-    var oldPin by remember { mutableStateOf("") }
-    var newPin by remember { mutableStateOf("") }
-    var confirmPin by remember { mutableStateOf("") }
-    var dialogError by remember { mutableStateOf<String?>(null) }
-    var successDone by remember { mutableStateOf(false) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.LockReset, contentDescription = null, tint = EmeraldPrimary)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("تغيير رمز الدخول للإدارة", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            }
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                if (successDone) {
-                    Text("تم تحديث رمز الدخول بنجاح! يمكنك الآن تسجيل الدخول بالرمز الجديد.", color = EmeraldPrimary, fontWeight = FontWeight.Bold)
-                } else {
-                    Text(
-                        "أدخل الرمز الحالي متبوعاً بالرمز الجديد لتأمين لوحة الإشراف:",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    OutlinedTextField(
-                        value = oldPin,
-                        onValueChange = {
-                            oldPin = it
-                            dialogError = null
-                        },
-                        label = { Text("الرمز السري الحالي") },
-                        placeholder = { Text("الافتراضي: 2026") },
-                        visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    OutlinedTextField(
-                        value = newPin,
-                        onValueChange = {
-                            newPin = it
-                            dialogError = null
-                        },
-                        label = { Text("الرمز الجديد (4 أرقام أو أكثر)") },
-                        visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    OutlinedTextField(
-                        value = confirmPin,
-                        onValueChange = {
-                            confirmPin = it
-                            dialogError = null
-                        },
-                        label = { Text("تأكيد الرمز الجديد") },
-                        visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    if (dialogError != null) {
-                        Text(
-                            text = dialogError!!,
-                            color = MaterialTheme.colorScheme.error,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            if (successDone) {
-                Button(onClick = onDismiss) {
-                    Text("حسناً")
-                }
-            } else {
-                Button(
-                    onClick = {
-                        if (newPin.trim().length < 4) {
-                            dialogError = "الرمز الجديد يجب أن يتكون من 4 أرقام على الأقل"
-                            return@Button
-                        }
-                        if (newPin.trim() != confirmPin.trim()) {
-                            dialogError = "الرمز الجديد وتأكيده غير متطابقين!"
-                            return@Button
-                        }
-                        val success = viewModel.updateAdminPin(oldPin, newPin)
-                        if (success) {
-                            successDone = true
-                        } else {
-                            dialogError = "الرمز الحالي غير صحيح!"
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary)
-                ) {
-                    Text("حفظ الرمز الجديد")
-                }
-            }
-        },
-        dismissButton = {
-            if (!successDone) {
-                TextButton(onClick = onDismiss) {
-                    Text("إلغاء")
-                }
-            }
-        }
-    )
 }

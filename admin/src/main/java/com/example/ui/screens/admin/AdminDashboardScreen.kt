@@ -44,6 +44,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -63,6 +64,7 @@ import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Edit
@@ -127,6 +129,8 @@ fun AdminDashboardScreen(
     val allReports by viewModel.allReports.collectAsState()
     val adminAuditLogs by viewModel.adminAuditLogs.collectAsState()
     val allTopUpRequests by viewModel.allTopUpRequests.collectAsState()
+    val topUpListUiState by viewModel.topUpListUiState.collectAsState()
+    val isProcessingTopUp by viewModel.isProcessingTopUp.collectAsState()
 
     val clipboardManager = LocalClipboardManager.current
     var ripInput by remember(platformSettings) { mutableStateOf(platformSettings.officialRip) }
@@ -154,14 +158,6 @@ fun AdminDashboardScreen(
 
     // Search Users
     var userSearchQuery by remember { mutableStateOf("") }
-    var showChangePinDialog by remember { mutableStateOf(false) }
-
-    if (showChangePinDialog) {
-        com.example.ChangeAdminPinDialog(
-            viewModel = viewModel,
-            onDismiss = { showChangePinDialog = false }
-        )
-    }
 
     if (rejectingAdId != null) {
         AlertDialog(
@@ -328,9 +324,6 @@ fun AdminDashboardScreen(
                 }
             },
             actions = {
-                IconButton(onClick = { showChangePinDialog = true }) {
-                    Icon(Icons.Default.Key, contentDescription = "تغيير رمز الإشراف", tint = GoldSecondary)
-                }
                 Button(
                     onClick = onBack,
                     colors = ButtonDefaults.buttonColors(containerColor = UrgentRed),
@@ -423,184 +416,273 @@ fun AdminDashboardScreen(
             contentPadding = PaddingValues(bottom = 90.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // TAB 0: TOP-UP REQUESTS & RECEIPTS
+            // TAB 0: TOP-UP REQUESTS & RECEIPTS (DIRECT FIRESTORE STREAM)
             if (selectedTab == 0) {
-                item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        val pendingCount = allTopUpRequests.count { it.status == "PENDING" }
-                        FilterChip(
-                            selected = selectedTopUpFilter == "PENDING",
-                            onClick = { selectedTopUpFilter = "PENDING" },
-                            label = { Text("قيد الانتظار ($pendingCount)") }
-                        )
-                        FilterChip(
-                            selected = selectedTopUpFilter == "APPROVED",
-                            onClick = { selectedTopUpFilter = "APPROVED" },
-                            label = { Text("المقبولة") }
-                        )
-                        FilterChip(
-                            selected = selectedTopUpFilter == "REJECTED",
-                            onClick = { selectedTopUpFilter = "REJECTED" },
-                            label = { Text("المرفوضة") }
-                        )
-                        FilterChip(
-                            selected = selectedTopUpFilter == "ALL",
-                            onClick = { selectedTopUpFilter = "ALL" },
-                            label = { Text("الكل (${allTopUpRequests.size})") }
-                        )
-                    }
-                }
-
-                val filteredRequests = when (selectedTopUpFilter) {
-                    "PENDING" -> allTopUpRequests.filter { it.status == "PENDING" }
-                    "APPROVED" -> allTopUpRequests.filter { it.status == "APPROVED" }
-                    "REJECTED" -> allTopUpRequests.filter { it.status == "REJECTED" }
-                    else -> allTopUpRequests
-                }
-
-                if (filteredRequests.isEmpty()) {
-                    item {
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                        ) {
-                            Text(
-                                text = if (selectedTopUpFilter == "PENDING") "لا توجد طلبات شحن معلقة حالياً ✓" else "لا توجد طلبات في هذا القسم.",
-                                modifier = Modifier.padding(16.dp),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                when (val state = topUpListUiState) {
+                    is MarketplaceViewModel.TopUpListUiState.Loading -> {
+                        item {
+                            Card(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(20.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    CircularProgressIndicator(
+                                        color = EmeraldPrimary,
+                                        modifier = Modifier.size(24.dp),
+                                        strokeWidth = 2.5.dp
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Text(
+                                        "جاري مزامنة واسترجاع طلبات الشحن من Firebase Firestore...",
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
                         }
                     }
-                } else {
-                    items(filteredRequests, key = { it.id }) { req ->
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                            border = BorderStroke(
-                                1.dp,
-                                when (req.status) {
-                                    "PENDING" -> GoldSecondary.copy(alpha = 0.5f)
-                                    "APPROVED" -> EmeraldPrimary.copy(alpha = 0.4f)
-                                    else -> UrgentRed.copy(alpha = 0.3f)
-                                }
-                            )
-                        ) {
-                            Column(modifier = Modifier.padding(14.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(req.userName, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(Icons.Default.Phone, contentDescription = null, modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text(
-                                                text = req.userPhone.ifBlank { "بدون هاتف" },
-                                                fontSize = 11.sp,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                    }
 
-                                    Column(horizontalAlignment = Alignment.End) {
-                                        Text(
-                                            text = "+ ${req.amountDzd} دج",
-                                            fontWeight = FontWeight.Black,
-                                            fontSize = 16.sp,
-                                            color = if (req.status == "APPROVED") EmeraldPrimary else GoldSecondary
-                                        )
-                                        Surface(
-                                            shape = RoundedCornerShape(6.dp),
-                                            color = when (req.status) {
-                                                "PENDING" -> GoldSecondary.copy(alpha = 0.15f)
-                                                "APPROVED" -> EmeraldPrimary.copy(alpha = 0.15f)
-                                                else -> UrgentRed.copy(alpha = 0.15f)
+                    is MarketplaceViewModel.TopUpListUiState.Error -> {
+                        item {
+                            Card(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                                colors = CardDefaults.cardColors(containerColor = UrgentRed.copy(alpha = 0.1f)),
+                                border = BorderStroke(1.dp, UrgentRed.copy(alpha = 0.5f))
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.Warning, contentDescription = null, tint = UrgentRed, modifier = Modifier.size(20.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("خطأ في الاتصال أو الصلاحيات بـ Firestore", fontWeight = FontWeight.Bold, color = UrgentRed, fontSize = 13.sp)
+                                    }
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        text = state.message,
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        lineHeight = 16.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "ملاحظة: إذا ظهر خطأ PERMISSION_DENIED، تأكد من تسجيل دخول المشرف بحساب يحمل صلاحية admin == true في Firebase Auth.",
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    is MarketplaceViewModel.TopUpListUiState.Success -> {
+                        val requests = state.requests
+                        val pendingCount = requests.count { it.status == "PENDING" }
+                        val approvedCount = requests.count { it.status == "APPROVED" }
+                        val rejectedCount = requests.count { it.status == "REJECTED" }
+
+                        item {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                FilterChip(
+                                    selected = selectedTopUpFilter == "PENDING",
+                                    onClick = { selectedTopUpFilter = "PENDING" },
+                                    label = { Text("قيد الانتظار ($pendingCount)") }
+                                )
+                                FilterChip(
+                                    selected = selectedTopUpFilter == "APPROVED",
+                                    onClick = { selectedTopUpFilter = "APPROVED" },
+                                    label = { Text("المقبولة ($approvedCount)") }
+                                )
+                                FilterChip(
+                                    selected = selectedTopUpFilter == "REJECTED",
+                                    onClick = { selectedTopUpFilter = "REJECTED" },
+                                    label = { Text("المرفوضة ($rejectedCount)") }
+                                )
+                                FilterChip(
+                                    selected = selectedTopUpFilter == "ALL",
+                                    onClick = { selectedTopUpFilter = "ALL" },
+                                    label = { Text("الكل (${requests.size})") }
+                                )
+                            }
+                        }
+
+                        val filteredRequests = when (selectedTopUpFilter) {
+                            "PENDING" -> requests.filter { it.status == "PENDING" }
+                            "APPROVED" -> requests.filter { it.status == "APPROVED" }
+                            "REJECTED" -> requests.filter { it.status == "REJECTED" }
+                            else -> requests
+                        }
+
+                        if (filteredRequests.isEmpty()) {
+                            item {
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                ) {
+                                    Text(
+                                        text = if (selectedTopUpFilter == "PENDING") "لا توجد طلبات شحن معلقة حالياً في Firestore ✓" else "لا توجد طلبات في هذا القسم.",
+                                        modifier = Modifier.padding(16.dp),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        } else {
+                            items(filteredRequests, key = { it.id }) { req ->
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                    border = BorderStroke(
+                                        1.dp,
+                                        when (req.status) {
+                                            "PENDING" -> GoldSecondary.copy(alpha = 0.5f)
+                                            "APPROVED" -> EmeraldPrimary.copy(alpha = 0.4f)
+                                            else -> UrgentRed.copy(alpha = 0.3f)
+                                        }
+                                    )
+                                ) {
+                                    Column(modifier = Modifier.padding(14.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(req.userName, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Icon(Icons.Default.Phone, contentDescription = null, modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text(
+                                                        text = req.userPhone.ifBlank { "بدون هاتف" },
+                                                        fontSize = 11.sp,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
                                             }
-                                        ) {
-                                            Text(
-                                                text = when (req.status) {
-                                                    "PENDING" -> "قيد المراجعة ⏳"
-                                                    "APPROVED" -> "تم الشحن ✓"
-                                                    else -> "مرفوض ✕"
-                                                },
-                                                color = when (req.status) {
-                                                    "PENDING" -> GoldSecondary
-                                                    "APPROVED" -> EmeraldPrimary
-                                                    else -> UrgentRed
-                                                },
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 10.sp,
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                            )
-                                        }
-                                    }
-                                }
 
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text("الوسيلة: ${req.provider}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text(formatTimeAgo(req.createdAt), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-
-                                if (req.reference.isNotBlank()) {
-                                    Text("رقم المرجع: ${req.reference}", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = EmeraldDark)
-                                }
-
-                                if (req.adminNote.isNotBlank()) {
-                                    Text("ملاحظة: ${req.adminNote}", fontSize = 11.sp, color = if (req.status == "REJECTED") UrgentRed else EmeraldPrimary)
-                                }
-
-                                Spacer(modifier = Modifier.height(10.dp))
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    if (req.receiptImageUri.isNotBlank()) {
-                                        OutlinedButton(
-                                            onClick = { previewReceiptUrl = req.receiptImageUri },
-                                            modifier = Modifier.height(36.dp),
-                                            contentPadding = PaddingValues(horizontal = 8.dp)
-                                        ) {
-                                            Icon(Icons.Default.Visibility, contentDescription = null, modifier = Modifier.size(14.dp))
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text("معاينة الوصل", fontSize = 11.sp)
-                                        }
-                                    }
-
-                                    if (req.status == "PENDING") {
-                                        Button(
-                                            onClick = { viewModel.approveTopUpRequest(req.id) },
-                                            colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
-                                            modifier = Modifier.weight(1f).height(36.dp),
-                                            contentPadding = PaddingValues(horizontal = 8.dp)
-                                        ) {
-                                            Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(14.dp))
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text("قبول وشحن", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Column(horizontalAlignment = Alignment.End) {
+                                                Text(
+                                                    text = "+ ${req.amountDzd} دج",
+                                                    fontWeight = FontWeight.Black,
+                                                    fontSize = 16.sp,
+                                                    color = if (req.status == "APPROVED") EmeraldPrimary else GoldSecondary
+                                                )
+                                                Surface(
+                                                    shape = RoundedCornerShape(6.dp),
+                                                    color = when (req.status) {
+                                                        "PENDING" -> GoldSecondary.copy(alpha = 0.15f)
+                                                        "APPROVED" -> EmeraldPrimary.copy(alpha = 0.15f)
+                                                        else -> UrgentRed.copy(alpha = 0.15f)
+                                                    }
+                                                ) {
+                                                    Text(
+                                                        text = when (req.status) {
+                                                            "PENDING" -> "قيد المراجعة ⏳"
+                                                            "APPROVED" -> "تم الشحن ✓"
+                                                            else -> "مرفوض ✕"
+                                                        },
+                                                        color = when (req.status) {
+                                                            "PENDING" -> GoldSecondary
+                                                            "APPROVED" -> EmeraldPrimary
+                                                            else -> UrgentRed
+                                                        },
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 10.sp,
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    )
+                                                }
+                                            }
                                         }
 
-                                        OutlinedButton(
-                                            onClick = {
-                                                rejectTopUpTarget = req
-                                                rejectTopUpReason = ""
-                                            },
-                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = UrgentRed),
-                                            modifier = Modifier.height(36.dp),
-                                            contentPadding = PaddingValues(horizontal = 8.dp)
+                                        Spacer(modifier = Modifier.height(8.dp))
+
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween
                                         ) {
-                                            Text("رفض", fontSize = 11.sp, color = UrgentRed)
+                                            Text("الوسيلة: ${req.provider}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text(formatTimeAgo(req.createdAt), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+
+                                        if (req.reference.isNotBlank()) {
+                                            Text("رقم المرجع: ${req.reference}", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = EmeraldDark)
+                                        }
+
+                                        if (req.adminNote.isNotBlank()) {
+                                            Text("ملاحظة المشرف: ${req.adminNote}", fontSize = 11.sp, color = if (req.status == "REJECTED") UrgentRed else EmeraldPrimary)
+                                        }
+
+                                        Spacer(modifier = Modifier.height(10.dp))
+
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            if (req.receiptImageUri.isNotBlank()) {
+                                                OutlinedButton(
+                                                    onClick = {
+                                                        if (req.receiptImageUri.startsWith("http://") || req.receiptImageUri.startsWith("https://")) {
+                                                            previewReceiptUrl = req.receiptImageUri
+                                                        } else {
+                                                            viewModel.resolveReceiptUrl(req.receiptImageUri) { resolved ->
+                                                                previewReceiptUrl = resolved ?: req.receiptImageUri
+                                                            }
+                                                        }
+                                                    },
+                                                    modifier = Modifier.height(36.dp),
+                                                    contentPadding = PaddingValues(horizontal = 8.dp)
+                                                ) {
+                                                    Icon(Icons.Default.Visibility, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text("معاينة الوصل", fontSize = 11.sp)
+                                                }
+                                            }
+
+                                            if (req.status == "PENDING") {
+                                                val isOperating = isProcessingTopUp == req.id
+                                                val isAnyOperating = isProcessingTopUp != null
+
+                                                Button(
+                                                    onClick = { viewModel.approveTopUpRequest(req.id) },
+                                                    colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
+                                                    modifier = Modifier.weight(1f).height(36.dp),
+                                                    contentPadding = PaddingValues(horizontal = 8.dp),
+                                                    enabled = !isAnyOperating
+                                                ) {
+                                                    if (isOperating) {
+                                                        CircularProgressIndicator(
+                                                            color = MaterialTheme.colorScheme.onPrimary,
+                                                            modifier = Modifier.size(16.dp),
+                                                            strokeWidth = 2.dp
+                                                        )
+                                                        Spacer(modifier = Modifier.width(4.dp))
+                                                        Text("جاري الاعتماد...", fontSize = 11.sp)
+                                                    } else {
+                                                        Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                        Spacer(modifier = Modifier.width(4.dp))
+                                                        Text("قبول وشحن", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                    }
+                                                }
+
+                                                OutlinedButton(
+                                                    onClick = {
+                                                        rejectTopUpTarget = req
+                                                        rejectTopUpReason = ""
+                                                    },
+                                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = UrgentRed),
+                                                    modifier = Modifier.height(36.dp),
+                                                    contentPadding = PaddingValues(horizontal = 8.dp),
+                                                    enabled = !isAnyOperating
+                                                ) {
+                                                    Text("رفض", fontSize = 11.sp, color = UrgentRed)
+                                                }
+                                            }
                                         }
                                     }
                                 }

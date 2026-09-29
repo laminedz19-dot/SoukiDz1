@@ -68,6 +68,23 @@
         "createdAt": { "type": "timestamp" },
         "completedAt": { "type": "number" }
       }
+    },
+    "TopUpRequest": {
+      "collection": "topUpRequests",
+      "fields": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userPhone": { "type": "string" },
+        "amountDzd": { "type": "number" },
+        "provider": { "type": "string" },
+        "reference": { "type": "string" },
+        "receiptImageUri": { "type": "string" },
+        "status": { "type": "string" },
+        "adminNote": { "type": "string" },
+        "createdAt": { "type": "timestamp" },
+        "reviewedAt": { "type": "timestamp" }
+      }
     }
   }
 }

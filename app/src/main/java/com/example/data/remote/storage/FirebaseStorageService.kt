@@ -51,6 +51,7 @@ class FirebaseStorageService(
         const val MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024L // 10 MB maximum per image (matches storage.rules)
         const val ROOT_LISTINGS_FOLDER = "listings"
         const val ROOT_AVATARS_FOLDER = "avatars"
+        const val ROOT_TOPUP_RECEIPTS_FOLDER = "topUpReceipts"
     }
 
     private val storage: FirebaseStorage? = customStorage ?: run {
@@ -414,6 +415,98 @@ class FirebaseStorageService(
             Result.success(downloadUrl)
         } catch (e: Exception) {
             Log.e(TAG, "Error uploading avatar: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    // ==========================================
+    // 5. TOP-UP PAYMENT RECEIPTS
+    // ==========================================
+
+    /**
+     * Uploads a top-up receipt to the path required by security rules:
+     * topUpReceipts/{userId}/{requestId}/receipt.{extension}
+     *
+     * Validates image format and 10MB limit.
+     * Returns the Storage path (NOT a public URL) to be stored in Firestore receiptImageUri.
+     */
+    suspend fun uploadTopUpReceipt(
+        context: Context,
+        userId: String,
+        requestId: String,
+        imageUri: Uri
+    ): Result<String> {
+        val st = storage ?: return Result.failure(IllegalStateException("خدمة التخزين السحابي Firebase Storage غير مهيأة"))
+
+        // Validate image file
+        val validation = validateImageFile(context, imageUri)
+        if (validation.isFailure) {
+            return Result.failure(validation.exceptionOrNull()!!)
+        }
+        val info = validation.getOrNull()!!
+
+        val fileName = "receipt.${info.extension}"
+        val storagePath = "$ROOT_TOPUP_RECEIPTS_FOLDER/$userId/$requestId/$fileName"
+        val ref = st.reference.child(storagePath)
+
+        val metadata = StorageMetadata.Builder()
+            .setContentType(info.mimeType)
+            .setCustomMetadata("userId", userId)
+            .setCustomMetadata("requestId", requestId)
+            .setCustomMetadata("uploadedAt", System.currentTimeMillis().toString())
+            .build()
+
+        return try {
+            ref.putFile(imageUri, metadata).await()
+            Log.i(TAG, "Successfully uploaded top-up receipt to $storagePath")
+            Result.success(storagePath)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to upload top-up receipt to $storagePath: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Deletes a top-up receipt file by its storage path if Firestore write fails.
+     */
+    suspend fun deleteReceiptByPath(storagePath: String): Result<Unit> {
+        val st = storage ?: return Result.failure(IllegalStateException("Firebase Storage is not initialized"))
+        return try {
+            val ref = if (storagePath.startsWith("http://") || storagePath.startsWith("https://") || storagePath.startsWith("gs://")) {
+                st.getReferenceFromUrl(storagePath)
+            } else {
+                st.reference.child(storagePath)
+            }
+            ref.delete().await()
+            Log.i(TAG, "Deleted receipt image: $storagePath")
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error deleting receipt image $storagePath: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Resolves a Storage path into an authenticated download URL for the current user/admin.
+     */
+    suspend fun getReceiptDownloadUrl(storagePathOrUrl: String): Result<String> {
+        if (storagePathOrUrl.isBlank()) {
+            return Result.failure(IllegalArgumentException("مسار الصورة فارغ"))
+        }
+        if (storagePathOrUrl.startsWith("http://") || storagePathOrUrl.startsWith("https://")) {
+            return Result.success(storagePathOrUrl)
+        }
+        val st = storage ?: return Result.failure(IllegalStateException("خدمة التخزين السحابي Firebase Storage غير مهيأة"))
+        return try {
+            val ref = if (storagePathOrUrl.startsWith("gs://")) {
+                st.getReferenceFromUrl(storagePathOrUrl)
+            } else {
+                st.reference.child(storagePathOrUrl)
+            }
+            val downloadUrl = ref.downloadUrl.await().toString()
+            Result.success(downloadUrl)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to retrieve authenticated download URL for $storagePathOrUrl: ${e.message}", e)
             Result.failure(e)
         }
     }

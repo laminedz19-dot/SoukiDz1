@@ -112,6 +112,7 @@ fun ProfileScreen(
     val currentLang by viewModel.language.collectAsState()
     val wallet by viewModel.currentWallet.collectAsState()
     val walletTransactions by viewModel.walletTransactions.collectAsState()
+    val userTopUpSyncState by viewModel.userTopUpSyncState.collectAsState()
     val userTopUpRequests by viewModel.userTopUpRequests.collectAsState()
     val myListings by viewModel.myListings.collectAsState()
     val allListings by viewModel.adminListings.collectAsState()
@@ -126,6 +127,8 @@ fun ProfileScreen(
     var topUpReferenceText by remember { mutableStateOf("") }
     var receiptImageUri by remember { mutableStateOf("") }
     var isAccountCopied by remember { mutableStateOf(false) }
+    var isSubmittingTopUp by remember { mutableStateOf(false) }
+    var topUpErrorText by remember { mutableStateOf<String?>(null) }
     val clipboardManager = LocalClipboardManager.current
 
     val receiptPickerLauncher = rememberLauncherForActivityResult(
@@ -408,12 +411,29 @@ fun ProfileScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable { topUpProvider = code }
+                                    .clickable(enabled = !isSubmittingTopUp) { topUpProvider = code }
                                     .padding(vertical = 3.dp)
                             ) {
-                                RadioButton(selected = topUpProvider == code, onClick = { topUpProvider = code })
+                                RadioButton(selected = topUpProvider == code, onClick = { topUpProvider = code }, enabled = !isSubmittingTopUp)
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(label, fontSize = 12.sp)
+                            }
+                        }
+
+                        if (topUpErrorText != null) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = UrgentRed.copy(alpha = 0.12f)),
+                                border = BorderStroke(1.dp, UrgentRed.copy(alpha = 0.4f))
+                            ) {
+                                Text(
+                                    text = topUpErrorText!!,
+                                    color = UrgentRed,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(8.dp)
+                                )
                             }
                         }
                     }
@@ -423,31 +443,62 @@ fun ProfileScreen(
                 Button(
                     onClick = {
                         val amount = topUpAmountText.toIntOrNull() ?: 0
-                        if (amount >= 200) {
-                            viewModel.submitTopUpRequest(
-                                amount = amount,
-                                provider = topUpProvider,
-                                reference = topUpReferenceText,
-                                receiptImageUri = receiptImageUri,
-                                onSuccess = {
-                                    showTopUpDialog = false
-                                    isAccountCopied = false
-                                    topUpReferenceText = ""
-                                    receiptImageUri = ""
-                                }
-                            )
+                        if (amount < 200) {
+                            topUpErrorText = "الحد الأدنى لشحن الرصيد هو 200 دج"
+                            return@Button
                         }
+                        if (receiptImageUri.isBlank() && topUpReferenceText.isBlank()) {
+                            topUpErrorText = "يرجى إرفاق صورة وصل التحويل أو إدخال رقم مرجع العملية على الأقل"
+                            return@Button
+                        }
+                        isSubmittingTopUp = true
+                        topUpErrorText = null
+                        viewModel.submitTopUpRequest(
+                            amount = amount,
+                            provider = topUpProvider,
+                            reference = topUpReferenceText,
+                            receiptImageUri = receiptImageUri,
+                            onSuccess = {
+                                isSubmittingTopUp = false
+                                showTopUpDialog = false
+                                isAccountCopied = false
+                                topUpReferenceText = ""
+                                receiptImageUri = ""
+                                topUpErrorText = null
+                            },
+                            onError = { err ->
+                                isSubmittingTopUp = false
+                                topUpErrorText = err
+                            }
+                        )
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary)
+                    colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
+                    enabled = !isSubmittingTopUp
                 ) {
-                    Text("إرسال طلب الشحن للمراجعة")
+                    if (isSubmittingTopUp) {
+                        CircularProgressIndicator(
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("جاري إرسال الطلب وحفظه...", fontSize = 12.sp)
+                    } else {
+                        Text("إرسال طلب الشحن للمراجعة")
+                    }
                 }
             },
             dismissButton = {
-                TextButton(onClick = {
-                    showTopUpDialog = false
-                    isAccountCopied = false
-                }) {
+                TextButton(
+                    onClick = {
+                        if (!isSubmittingTopUp) {
+                            showTopUpDialog = false
+                            isAccountCopied = false
+                            topUpErrorText = null
+                        }
+                    },
+                    enabled = !isSubmittingTopUp
+                ) {
                     Text("إلغاء")
                 }
             }
@@ -865,6 +916,53 @@ fun ProfileScreen(
 
             2 -> {
                 // Wallet Transactions & Top-Up Requests
+                if (userTopUpSyncState is MarketplaceViewModel.TopUpSyncState.Error) {
+                    item {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 6.dp),
+                            colors = CardDefaults.cardColors(containerColor = UrgentRed.copy(alpha = 0.1f)),
+                            border = BorderStroke(1.dp, UrgentRed.copy(alpha = 0.4f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Warning, contentDescription = null, tint = UrgentRed, modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text(
+                                        text = "تعذر مزامنة طلبات الشحن من السحابة",
+                                        fontWeight = FontWeight.Bold,
+                                        color = UrgentRed,
+                                        fontSize = 12.sp
+                                    )
+                                    Text(
+                                        text = (userTopUpSyncState as MarketplaceViewModel.TopUpSyncState.Error).message,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } else if (userTopUpSyncState is MarketplaceViewModel.TopUpSyncState.Loading && userTopUpRequests.isEmpty()) {
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            CircularProgressIndicator(color = EmeraldPrimary, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("جاري مزامنة طلبات الشحن من Firestore...", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+
                 if (userTopUpRequests.isNotEmpty()) {
                     item {
                         Text(
@@ -969,7 +1067,7 @@ fun ProfileScreen(
                     }
                 }
 
-                if (walletTransactions.isEmpty() && userTopUpRequests.isEmpty()) {
+                if (walletTransactions.isEmpty() && userTopUpRequests.isEmpty() && userTopUpSyncState !is MarketplaceViewModel.TopUpSyncState.Error && userTopUpSyncState !is MarketplaceViewModel.TopUpSyncState.Loading) {
                     item {
                         Column(
                             modifier = Modifier

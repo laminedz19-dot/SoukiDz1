@@ -1,6 +1,7 @@
 package com.example.data.remote.firestore
 
 import com.example.data.local.ListingEntity
+import com.example.data.local.TopUpRequestEntity
 import com.example.data.local.UserEntity
 import com.google.firebase.firestore.DocumentId
 import com.google.firebase.firestore.IgnoreExtraProperties
@@ -202,3 +203,62 @@ data class FirestorePayment(
     val createdAt: Date? = null,
     val completedAt: Long = 0L
 )
+
+/**
+ * Firestore data model for the "topUpRequests" collection.
+ * Required fields: id, userId, userName, userPhone, amountDzd, provider,
+ * reference, receiptImageUri, status, adminNote, createdAt, reviewedAt.
+ */
+@IgnoreExtraProperties
+data class FirestoreTopUpRequest(
+    @DocumentId
+    val id: String = "",
+    val userId: String = "",
+    val userName: String = "",
+    val userPhone: String = "",
+    val amountDzd: Int = 0,
+    val provider: String = "BARIDIMOB", // "BARIDIMOB", "CCP", "EDAHABIA", "CIB"
+    val reference: String = "",
+    val receiptImageUri: String = "",
+    val status: String = "PENDING", // "PENDING", "APPROVED", "REJECTED"
+    val adminNote: String = "",
+    @ServerTimestamp
+    val createdAt: Date? = null,
+    val reviewedAt: Date? = null
+) {
+    fun toTopUpRequestEntity(): TopUpRequestEntity {
+        return TopUpRequestEntity(
+            id = id,
+            userId = userId,
+            userName = userName,
+            userPhone = userPhone,
+            amountDzd = amountDzd,
+            provider = provider,
+            reference = reference,
+            receiptImageUri = receiptImageUri,
+            status = status,
+            adminNote = adminNote,
+            createdAt = createdAt?.time ?: System.currentTimeMillis(),
+            reviewedAt = reviewedAt?.time ?: 0L
+        )
+    }
+
+    companion object {
+        fun fromTopUpRequestEntity(entity: TopUpRequestEntity): FirestoreTopUpRequest {
+            return FirestoreTopUpRequest(
+                id = entity.id,
+                userId = entity.userId,
+                userName = entity.userName,
+                userPhone = entity.userPhone,
+                amountDzd = entity.amountDzd,
+                provider = entity.provider,
+                reference = entity.reference,
+                receiptImageUri = entity.receiptImageUri,
+                status = entity.status,
+                adminNote = entity.adminNote,
+                createdAt = if (entity.createdAt > 0) Date(entity.createdAt) else null,
+                reviewedAt = if (entity.reviewedAt > 0) Date(entity.reviewedAt) else null
+            )
+        }
+    }
+}

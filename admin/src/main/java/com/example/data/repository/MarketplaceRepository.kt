@@ -1,5 +1,7 @@
 package com.example.data.repository
 
+import android.content.Context
+import android.net.Uri
 import com.example.data.local.AppDatabase
 import com.example.data.local.ChatMessageEntity
 import com.example.data.local.FavoriteEntity
@@ -15,9 +17,11 @@ import com.example.data.local.TopUpRequestEntity
 import com.example.data.remote.auth.FirebaseAuthService
 import com.example.data.remote.firestore.FirestorePayment
 import com.example.data.remote.firestore.FirestoreService
+import com.example.data.remote.firestore.FirestoreTopUpRequest
 import com.example.data.remote.storage.FirebaseStorageService
 import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import java.util.UUID
 
 class MarketplaceRepository(
@@ -157,72 +161,84 @@ class MarketplaceRepository(
     fun getAllTopUpRequests(): Flow<List<TopUpRequestEntity>> =
         db.topUpRequestDao().getAllRequests()
 
+    /**
+     * Primary Source of Truth: Listens directly to all top-up requests in Firestore.
+     * Caches requests in local Room and emits Result.failure on snapshot errors so the UI
+     * can display Error state instead of falsely displaying Empty.
+     */
+    fun getAllTopUpRequestsFromFirestore(): Flow<Result<List<TopUpRequestEntity>>> {
+        return firestoreService.getAllTopUpRequestsFlow().map { result ->
+            if (result.isSuccess) {
+                val firestoreList = result.getOrNull().orEmpty()
+                val entities = firestoreList.map { it.toTopUpRequestEntity() }
+                try {
+                    for (entity in entities) {
+                        db.topUpRequestDao().insertRequest(entity)
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.w("MarketplaceRepository", "Failed to cache requests in admin Room: ${e.message}")
+                }
+                Result.success(entities)
+            } else {
+                Result.failure(result.exceptionOrNull() ?: Exception("خطأ أثناء مزامنة طلبات الشحن من Firestore"))
+            }
+        }
+    }
+
     suspend fun submitTopUpRequest(
-        userId: String,
+        context: Context,
         amount: Int,
         provider: String,
         reference: String,
-        receiptImageUri: String
+        receiptImageUriString: String
     ): Result<String> {
-        val user = db.userDao().getUserByIdDirect(userId)
-        val requestId = "req_" + UUID.randomUUID().toString().replace("-", "").take(10)
-        val request = TopUpRequestEntity(
-            id = requestId,
-            userId = userId,
-            userName = user?.name ?: "مستخدم سوقي",
-            userPhone = user?.phone ?: "",
-            amountDzd = amount,
-            provider = provider,
-            reference = reference,
-            receiptImageUri = receiptImageUri,
-            status = "PENDING",
-            adminNote = "",
-            createdAt = System.currentTimeMillis(),
-            reviewedAt = 0L
-        )
-        db.topUpRequestDao().insertRequest(request)
-        return Result.success("تم إرسال طلب الشحن بنجاح! سيقوم المشرف بالتحقق من الوصل وإضافة الرصيد إلى محفظتك.")
+        return Result.failure(Exception("تقديم طلبات الشحن متاح حصرياً عبر تطبيق العميل."))
     }
 
+    /**
+     * Approves top-up request using a Firestore Transaction.
+     * Guarantees the request is currently PENDING and cannot be re-approved or modified if already resolved.
+     */
     suspend fun approveTopUpRequest(requestId: String, adminNote: String = "تم التحقق من الوصل بنجاح"): Result<String> {
-        val request = db.topUpRequestDao().getRequestById(requestId)
-            ?: return Result.failure(Exception("طلب الشحن غير موجود."))
-
-        if (request.status == "APPROVED") {
-            return Result.failure(Exception("هذا الطلب تمت الموافقة عليه مسبقاً."))
+        val note = adminNote.ifBlank { "تم التحقق من الوصل بنجاح" }
+        val firestoreRes = firestoreService.updateTopUpStatus(requestId, "APPROVED", note)
+        if (firestoreRes.isFailure) {
+            val err = firestoreRes.exceptionOrNull()
+            return Result.failure(err ?: Exception("فشل اعتماد طلب الشحن في Firestore"))
         }
 
+        // Update local Room cache if document exists locally
         val now = System.currentTimeMillis()
-        val updated = db.walletDao().creditWallet(request.userId, request.amountDzd, now)
-        if (updated == 0) {
-            db.walletDao().insertOrUpdateWallet(
-                WalletEntity(userId = request.userId, balanceDzd = request.amountDzd, updatedAt = now)
-            )
+        try {
+            db.topUpRequestDao().updateStatus(requestId, "APPROVED", note, now)
+        } catch (e: Exception) {
+            android.util.Log.w("MarketplaceRepository", "Local cache update warning: ${e.message}")
         }
 
-        val tx = WalletTransactionEntity(
-            id = "tx_" + UUID.randomUUID().toString().replace("-", "").take(10),
-            userId = request.userId,
-            type = "TOPUP",
-            amount = request.amountDzd,
-            description = "شحن رصيد يدوي - وصل تحويل ${request.provider} (مرجع: ${request.reference.ifBlank { request.id }})",
-            referenceId = request.id,
-            timestamp = now
-        )
-        db.walletDao().insertTransaction(tx)
-        db.topUpRequestDao().updateStatus(request.id, "APPROVED", adminNote, now)
-
-        return Result.success("تمت الموافقة بنجاح وشحن ${request.amountDzd} دج إلى محفظة ${request.userName} ✓")
+        return Result.success("تمت الموافقة على طلب الشحن وتحديث الحالة في Firestore بنجاح ✓")
     }
 
+    /**
+     * Rejects top-up request using a Firestore Transaction.
+     * Guarantees the request is currently PENDING and cannot be modified if already resolved.
+     */
     suspend fun rejectTopUpRequest(requestId: String, reason: String): Result<String> {
-        val request = db.topUpRequestDao().getRequestById(requestId)
-            ?: return Result.failure(Exception("طلب الشحن غير موجود."))
-
-        val now = System.currentTimeMillis()
         val note = reason.ifBlank { "الوصل غير مطابق أو غير واضح" }
-        db.topUpRequestDao().updateStatus(request.id, "REJECTED", note, now)
-        return Result.success("تم رفض طلب الشحن.")
+        val firestoreRes = firestoreService.updateTopUpStatus(requestId, "REJECTED", note)
+        if (firestoreRes.isFailure) {
+            val err = firestoreRes.exceptionOrNull()
+            return Result.failure(err ?: Exception("فشل رفض طلب الشحن في Firestore"))
+        }
+
+        // Update local Room cache if document exists locally
+        val now = System.currentTimeMillis()
+        try {
+            db.topUpRequestDao().updateStatus(requestId, "REJECTED", note, now)
+        } catch (e: Exception) {
+            android.util.Log.w("MarketplaceRepository", "Local cache update warning: ${e.message}")
+        }
+
+        return Result.success("تم رفض طلب الشحن وتحديث الحالة في Firestore بنجاح.")
     }
 
     suspend fun topUpWallet(userId: String, amount: Int, paymentProvider: String, txReference: String? = null): Result<String> {

@@ -51,6 +51,54 @@ class FirebaseAuthService(
         }
     }
 
+    /**
+     * Authenticates administrator using Firebase Auth Email + Password.
+     * Enforces token force-refresh and verifies the custom claim "admin == true".
+     * If the custom claim is absent, immediately signs out and returns an error.
+     */
+    suspend fun loginAdminWithClaims(email: String, password: String): Result<FirebaseUser> {
+        val a = auth ?: return Result.failure(IllegalStateException("خدمة Firebase Authentication غير مهيأة"))
+        return try {
+            val result = a.signInWithEmailAndPassword(email.trim(), password).await()
+            val user = result.user ?: return Result.failure(IllegalStateException("تعذر العثور على بيانات المستخدم بعد المصادقة"))
+
+            // Force refresh ID token to load the latest custom claims from Firebase
+            val tokenResult = user.getIdToken(true).await()
+            val claims = tokenResult.claims
+            val isAdmin = claims["admin"] == true || claims["admin"] == "true"
+
+            if (!isAdmin) {
+                // Deny access and immediately sign out
+                a.signOut()
+                Log.w(TAG, "Admin login rejected for user ${user.uid}: missing 'admin: true' custom claim")
+                return Result.failure(
+                    SecurityException("الحساب (${user.email}) غير مصرح له كمسؤول في النظام. يجب تفعيل صلاحية 'admin: true' بواسطة Firebase Admin SDK.")
+                )
+            }
+
+            Log.i(TAG, "Admin login verified successfully for user: ${user.uid} (${user.email})")
+            Result.success(user)
+        } catch (e: Exception) {
+            Log.e(TAG, "Admin authentication error: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Checks if the currently active Firebase session has the admin custom claim.
+     */
+    suspend fun checkIsCurrentAdmin(): Boolean {
+        val user = auth?.currentUser ?: return false
+        return try {
+            val tokenResult = user.getIdToken(false).await()
+            val claims = tokenResult.claims
+            claims["admin"] == true || claims["admin"] == "true"
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to verify admin claim on current user: ${e.message}")
+            false
+        }
+    }
+
     suspend fun sendPasswordReset(email: String): Result<Unit> {
         val a = auth ?: return Result.failure(IllegalStateException("Firebase Auth is not initialized"))
         return try {

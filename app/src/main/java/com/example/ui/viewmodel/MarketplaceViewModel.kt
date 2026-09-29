@@ -156,8 +156,32 @@ class MarketplaceViewModel(application: Application) : AndroidViewModel(applicat
     }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val userTopUpRequests: StateFlow<List<TopUpRequestEntity>> = _currentUserId.flatMapLatest { id ->
-        repository.getUserTopUpRequests(id)
+    sealed interface TopUpSyncState {
+        data object Loading : TopUpSyncState
+        data class Success(val requests: List<TopUpRequestEntity>) : TopUpSyncState
+        data class Error(val message: String) : TopUpSyncState
+    }
+
+    val userTopUpSyncState: StateFlow<TopUpSyncState> = _currentUserId.flatMapLatest { id ->
+        if (id.isBlank() || id == "user_me" || id == "admin_super") {
+            kotlinx.coroutines.flow.flowOf(TopUpSyncState.Success(emptyList()))
+        } else {
+            repository.getUserTopUpRequestsFromFirestore(id).map { res ->
+                if (res.isSuccess) {
+                    TopUpSyncState.Success(res.getOrNull().orEmpty())
+                } else {
+                    val errMsg = res.exceptionOrNull()?.message ?: "خطأ في مزامنة طلبات الشحن من السحابة"
+                    TopUpSyncState.Error(errMsg)
+                }
+            }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), TopUpSyncState.Loading)
+
+    val userTopUpRequests: StateFlow<List<TopUpRequestEntity>> = userTopUpSyncState.map { state ->
+        when (state) {
+            is TopUpSyncState.Success -> state.requests
+            else -> emptyList()
+        }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val allTopUpRequests: StateFlow<List<TopUpRequestEntity>> = repository.getAllTopUpRequests()
@@ -570,6 +594,14 @@ class MarketplaceViewModel(application: Application) : AndroidViewModel(applicat
         onSuccess: () -> Unit = {},
         onError: (String) -> Unit = {}
     ) {
+        val authUser = repository.authService.currentUser
+        if (authUser == null || authUser.uid.isBlank() || authUser.uid == "user_me" || authUser.uid == "admin_super") {
+            val msg = "يجب تسجيل الدخول بحساب حقيقي عبر Firebase Authentication لإرسال طلب شحن الرصيد."
+            onError(msg)
+            emitMessage(msg)
+            return
+        }
+
         if (amount < 200) {
             val msg = "الحد الأدنى للشحن هو 200 دج."
             onError(msg)
@@ -585,11 +617,11 @@ class MarketplaceViewModel(application: Application) : AndroidViewModel(applicat
 
         viewModelScope.launch {
             val result = repository.submitTopUpRequest(
-                userId = _currentUserId.value,
+                context = getApplication(),
                 amount = amount,
                 provider = provider,
                 reference = reference,
-                receiptImageUri = receiptImageUri
+                receiptImageUriString = receiptImageUri
             )
             result.onSuccess { msg ->
                 emitMessage(msg)
