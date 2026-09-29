@@ -69,6 +69,9 @@ interface UserDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertUser(user: UserEntity)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertUsers(users: List<UserEntity>)
+
     @Update
     suspend fun updateUser(user: UserEntity)
 
@@ -89,6 +92,9 @@ interface UserDao {
 interface PaymentDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPayment(order: PaymentOrderEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPayments(payments: List<PaymentOrderEntity>)
 
     @Query("SELECT * FROM payment_orders ORDER BY createdAt DESC")
     fun getAllPayments(): Flow<List<PaymentOrderEntity>>

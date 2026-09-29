@@ -23,8 +23,9 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       // Allow user to create/update their own profile, but prevent modifying role, isVerified, isBanned
       allow create: if isOwner(userId) && request.resource.data.role == "USER" && request.resource.data.isVerified == false && request.resource.data.isBanned == false;
-      allow update: if isOwner(userId) &&
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'isVerified', 'isBanned']);
+      allow update: if (isOwner(userId) &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'isVerified', 'isBanned']))
+        || isAdmin();
       allow delete: if false;
     }
 

@@ -634,6 +634,26 @@ class MarketplaceRepository(
 
     // Platform Settings & Payments
     fun getPlatformSettings(): Flow<PlatformSettingsEntity?> = db.settingsDao().getSettings()
-    suspend fun updatePlatformSettings(settings: PlatformSettingsEntity) = db.settingsDao().insertOrUpdateSettings(settings)
+
+    suspend fun updatePlatformSettings(settings: PlatformSettingsEntity) {
+        db.settingsDao().insertOrUpdateSettings(settings)
+        try {
+            firestoreService.savePlatformSettings(settings)
+        } catch (_: Exception) {}
+    }
+
+    suspend fun syncPlatformSettingsFromFirestore() {
+        val result = firestoreService.getPlatformSettings()
+        if (result.isSuccess) {
+            result.getOrNull()?.let { remoteSettings ->
+                db.settingsDao().insertOrUpdateSettings(remoteSettings)
+            }
+        }
+    }
+
+    fun getPlatformSettingsFromFirestore(): Flow<Result<PlatformSettingsEntity?>> {
+        return firestoreService.getPlatformSettingsFlow()
+    }
+
     fun getAllPayments(): Flow<List<PaymentOrderEntity>> = db.paymentDao().getAllPayments()
 }

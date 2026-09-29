@@ -2,6 +2,7 @@ package com.example.data.remote.firestore
 
 import android.util.Log
 import com.example.data.local.ListingEntity
+import com.example.data.local.PlatformSettingsEntity
 import com.example.data.local.UserEntity
 import com.google.firebase.FirebaseApp
 import com.google.firebase.firestore.FieldValue
@@ -64,6 +65,44 @@ class FirestoreService(
             Result.success(snapshot.toObject(FirestoreUser::class.java))
         } catch (e: Exception) {
             Log.e(TAG, "Error fetching user from Firestore: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getAllUsers(): Result<List<FirestoreUser>> {
+        val db = firestore ?: return Result.success(emptyList())
+        return try {
+            val snapshot = db.collection(COLLECTION_USERS).get().await()
+            val users = snapshot.documents.mapNotNull { it.toObject(FirestoreUser::class.java) }
+            Result.success(users)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching all users from Firestore: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun updateUserVerification(userId: String, isVerified: Boolean): Result<Unit> {
+        val db = firestore ?: return Result.success(Unit)
+        return try {
+            db.collection(COLLECTION_USERS).document(userId)
+                .update("isVerified", isVerified)
+                .await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updating user verification in Firestore: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun updateUserBanStatus(userId: String, isBanned: Boolean): Result<Unit> {
+        val db = firestore ?: return Result.success(Unit)
+        return try {
+            db.collection(COLLECTION_USERS).document(userId)
+                .update("isBanned", isBanned)
+                .await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updating user ban status in Firestore: ${e.message}", e)
             Result.failure(e)
         }
     }
@@ -138,6 +177,50 @@ class FirestoreService(
         }
     }
 
+    suspend fun getAllListingsForAdmin(): Result<List<FirestoreListing>> {
+        val db = firestore ?: return Result.success(emptyList())
+        return try {
+            val snapshot = db.collection(COLLECTION_LISTINGS).get().await()
+            val listings = snapshot.documents.mapNotNull { it.toObject(FirestoreListing::class.java) }
+            Result.success(listings)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching all admin listings: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    fun getAllListingsForAdminFlow(): Flow<List<FirestoreListing>> {
+        val db = firestore ?: return emptyFlow()
+        return callbackFlow {
+            val listenerRegistration = db.collection(COLLECTION_LISTINGS)
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        Log.e(TAG, "Admin listings listen failed: ${error.message}", error)
+                        return@addSnapshotListener
+                    }
+                    if (snapshot != null) {
+                        val listings = snapshot.documents.mapNotNull { it.toObject(FirestoreListing::class.java) }
+                        trySend(listings)
+                    }
+                }
+            awaitClose { listenerRegistration.remove() }
+        }
+    }
+
+    suspend fun deleteListing(listingId: String): Result<Unit> {
+        val db = firestore ?: return Result.success(Unit)
+        return try {
+            db.collection(COLLECTION_LISTINGS)
+                .document(listingId)
+                .delete()
+                .await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error deleting listing from Firestore: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
     // --- PAYMENTS COLLECTION ---
 
     suspend fun recordPayment(payment: FirestorePayment): Result<Unit> {
@@ -150,6 +233,18 @@ class FirestoreService(
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e(TAG, "Error recording payment in Firestore: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getAllPayments(): Result<List<FirestorePayment>> {
+        val db = firestore ?: return Result.success(emptyList())
+        return try {
+            val snapshot = db.collection(COLLECTION_PAYMENTS).get().await()
+            val payments = snapshot.documents.mapNotNull { it.toObject(FirestorePayment::class.java) }
+            Result.success(payments)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching all payments from Firestore: ${e.message}", e)
             Result.failure(e)
         }
     }
@@ -351,6 +446,55 @@ class FirestoreService(
         } catch (e: Exception) {
             Log.e(TAG, "Error saving user wallet: ${e.message}", e)
             Result.failure(e)
+        }
+    }
+
+    // --- SETTINGS COLLECTION ---
+
+    suspend fun savePlatformSettings(settings: PlatformSettingsEntity): Result<Unit> {
+        val db = firestore ?: return Result.success(Unit)
+        return try {
+            val firestoreSettings = FirestoreSettings.fromPlatformSettingsEntity(settings)
+            db.collection(COLLECTION_SETTINGS)
+                .document(firestoreSettings.id)
+                .set(firestoreSettings)
+                .await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error saving platform settings to Firestore: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getPlatformSettings(): Result<PlatformSettingsEntity?> {
+        val db = firestore ?: return Result.success(null)
+        return try {
+            val doc = db.collection(COLLECTION_SETTINGS).document("global").get().await()
+            val settings = doc.toObject(FirestoreSettings::class.java)?.toPlatformSettingsEntity()
+            Result.success(settings)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching platform settings from Firestore: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    fun getPlatformSettingsFlow(): Flow<Result<PlatformSettingsEntity?>> {
+        val db = firestore ?: return emptyFlow()
+        return callbackFlow {
+            val listener = db.collection(COLLECTION_SETTINGS).document("global")
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        trySend(Result.failure(error))
+                        return@addSnapshotListener
+                    }
+                    if (snapshot != null && snapshot.exists()) {
+                        val settings = snapshot.toObject(FirestoreSettings::class.java)?.toPlatformSettingsEntity()
+                        trySend(Result.success(settings))
+                    } else {
+                        trySend(Result.success(null))
+                    }
+                }
+            awaitClose { listener.remove() }
         }
     }
 }

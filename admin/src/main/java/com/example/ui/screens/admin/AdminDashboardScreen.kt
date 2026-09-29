@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.ManageAccounts
 import androidx.compose.material.icons.filled.MonetizationOn
 import androidx.compose.material.icons.filled.Payment
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Report
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
@@ -131,6 +132,7 @@ fun AdminDashboardScreen(
     val allTopUpRequests by viewModel.allTopUpRequests.collectAsState()
     val topUpListUiState by viewModel.topUpListUiState.collectAsState()
     val isProcessingTopUp by viewModel.isProcessingTopUp.collectAsState()
+    val isRefreshing by viewModel.isRefreshing.collectAsState()
 
     val clipboardManager = LocalClipboardManager.current
     var ripInput by remember(platformSettings) { mutableStateOf(platformSettings.officialRip) }
@@ -343,6 +345,26 @@ fun AdminDashboardScreen(
                 }
             },
             actions = {
+                IconButton(
+                    onClick = { viewModel.refreshAllAdminData() },
+                    enabled = !isRefreshing
+                ) {
+                    if (isRefreshing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = EmeraldPrimary
+                        )
+                    } else {
+                        Icon(
+                            Icons.Default.Refresh,
+                            contentDescription = "تحديث البيانات",
+                            tint = EmeraldPrimary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.width(4.dp))
                 Button(
                     onClick = onBack,
                     colors = ButtonDefaults.buttonColors(containerColor = UrgentRed),
@@ -1107,10 +1129,29 @@ fun AdminDashboardScreen(
                                     Text(formatDzd(ad.priceDzd), color = EmeraldPrimary, fontWeight = FontWeight.Bold)
                                 }
                                 Spacer(modifier = Modifier.height(6.dp))
-                                Text(ad.title, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                                Text("المعلن: ${ad.userName} • ${ad.wilayaName}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(ad.description, fontSize = 12.sp, maxLines = 2)
+                                val firstImage = remember(ad.imagesJson) {
+                                    ad.imagesJson.split(",").map { it.trim() }.firstOrNull { it.isNotBlank() }
+                                }
+                                Row(modifier = Modifier.fillMaxWidth()) {
+                                    if (firstImage != null) {
+                                        AsyncImage(
+                                            model = firstImage,
+                                            contentDescription = "صورة الإعلان",
+                                            modifier = Modifier
+                                                .size(68.dp)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(Color.Black.copy(alpha = 0.05f)),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                    }
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(ad.title, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                        Text("المعلن: ${ad.userName} • ${ad.wilayaName}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(ad.description, fontSize = 11.sp, maxLines = 2, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
 
                                 Spacer(modifier = Modifier.height(10.dp))
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

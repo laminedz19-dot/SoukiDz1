@@ -2,6 +2,7 @@ package com.example.data.remote.firestore
 
 import android.util.Log
 import com.example.data.local.ListingEntity
+import com.example.data.local.PlatformSettingsEntity
 import com.example.data.local.UserEntity
 import com.google.firebase.FirebaseApp
 import com.google.firebase.firestore.FieldValue
@@ -331,6 +332,55 @@ class FirestoreService(
         } catch (e: Exception) {
             Log.e(TAG, "Error saving user wallet: ${e.message}", e)
             Result.failure(e)
+        }
+    }
+
+    // --- SETTINGS COLLECTION ---
+
+    suspend fun savePlatformSettings(settings: PlatformSettingsEntity): Result<Unit> {
+        val db = firestore ?: return Result.success(Unit)
+        return try {
+            val firestoreSettings = FirestoreSettings.fromPlatformSettingsEntity(settings)
+            db.collection(COLLECTION_SETTINGS)
+                .document(firestoreSettings.id)
+                .set(firestoreSettings)
+                .await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error saving platform settings to Firestore: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getPlatformSettings(): Result<PlatformSettingsEntity?> {
+        val db = firestore ?: return Result.success(null)
+        return try {
+            val doc = db.collection(COLLECTION_SETTINGS).document("global").get().await()
+            val settings = doc.toObject(FirestoreSettings::class.java)?.toPlatformSettingsEntity()
+            Result.success(settings)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching platform settings from Firestore: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    fun getPlatformSettingsFlow(): Flow<Result<PlatformSettingsEntity?>> {
+        val db = firestore ?: return emptyFlow()
+        return callbackFlow {
+            val listener = db.collection(COLLECTION_SETTINGS).document("global")
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        trySend(Result.failure(error))
+                        return@addSnapshotListener
+                    }
+                    if (snapshot != null && snapshot.exists()) {
+                        val settings = snapshot.toObject(FirestoreSettings::class.java)?.toPlatformSettingsEntity()
+                        trySend(Result.success(settings))
+                    } else {
+                        trySend(Result.success(null))
+                    }
+                }
+            awaitClose { listener.remove() }
         }
     }
 }

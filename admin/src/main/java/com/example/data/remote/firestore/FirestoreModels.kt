@@ -1,6 +1,8 @@
 package com.example.data.remote.firestore
 
 import com.example.data.local.ListingEntity
+import com.example.data.local.PaymentOrderEntity
+import com.example.data.local.PlatformSettingsEntity
 import com.example.data.local.TopUpRequestEntity
 import com.example.data.local.UserEntity
 import com.example.data.local.WalletEntity
@@ -203,7 +205,22 @@ data class FirestorePayment(
     @ServerTimestamp
     val createdAt: Date? = null,
     val completedAt: Long = 0L
-)
+) {
+    fun toPaymentOrderEntity(): PaymentOrderEntity {
+        return PaymentOrderEntity(
+            paymentId = paymentId,
+            userId = userId,
+            listingId = listingId,
+            amount = amount,
+            currency = currency,
+            status = status,
+            provider = provider,
+            transactionReference = transactionReference,
+            createdAt = createdAt?.time ?: System.currentTimeMillis(),
+            completedAt = completedAt
+        )
+    }
+}
 
 /**
  * Firestore data model for the "topUpRequests" collection.
@@ -297,4 +314,64 @@ data class FirestoreWallet(
         }
     }
 }
+
+/**
+ * Firestore data model for the "settings" collection (document: "platform" or "global").
+ * Keeps fees and official BaridiMob account synchronized across all devices in real-time.
+ */
+@IgnoreExtraProperties
+data class FirestoreSettings(
+    @DocumentId
+    val id: String = "global",
+    val standardAdFeeDzd: Int = 400,
+    val featuredAdFeeDzd: Int = 600,
+    val urgentAdFeeDzd: Int = 1000,
+    val adDurationDays: Int = 30,
+    val autoPublishAfterPayment: Boolean = true,
+    val isFreePromoActive: Boolean = false,
+    val officialRip: String = "007999990008761821",
+    val officialKey: String = "94",
+    val officialAccountHolder: String = "سوقي DZ - الحساب المعتمد",
+    val officialProviderName: String = "بريدي موب / CCP",
+    val officialInstructions: String = "يرجى تحويل المبلغ بدقة، ثم أخذ لقطة شاشة للوصل وإرفاقها مع كتابة رقم العملية.",
+    @ServerTimestamp
+    val updatedAt: Date? = null
+) {
+    fun toPlatformSettingsEntity(): PlatformSettingsEntity {
+        return PlatformSettingsEntity(
+            id = if (id.isNotBlank()) id else "global",
+            standardAdFeeDzd = standardAdFeeDzd,
+            featuredAdFeeDzd = featuredAdFeeDzd,
+            urgentAdFeeDzd = urgentAdFeeDzd,
+            adDurationDays = adDurationDays,
+            autoPublishAfterPayment = autoPublishAfterPayment,
+            isFreePromoActive = isFreePromoActive,
+            officialRip = officialRip,
+            officialKey = officialKey,
+            officialAccountHolder = officialAccountHolder,
+            officialProviderName = officialProviderName,
+            officialInstructions = officialInstructions
+        )
+    }
+
+    companion object {
+        fun fromPlatformSettingsEntity(entity: PlatformSettingsEntity): FirestoreSettings {
+            return FirestoreSettings(
+                id = if (entity.id.isNotBlank()) entity.id else "global",
+                standardAdFeeDzd = entity.standardAdFeeDzd,
+                featuredAdFeeDzd = entity.featuredAdFeeDzd,
+                urgentAdFeeDzd = entity.urgentAdFeeDzd,
+                adDurationDays = entity.adDurationDays,
+                autoPublishAfterPayment = entity.autoPublishAfterPayment,
+                isFreePromoActive = entity.isFreePromoActive,
+                officialRip = entity.officialRip,
+                officialKey = entity.officialKey,
+                officialAccountHolder = entity.officialAccountHolder,
+                officialProviderName = entity.officialProviderName,
+                officialInstructions = entity.officialInstructions
+            )
+        }
+    }
+}
+
 

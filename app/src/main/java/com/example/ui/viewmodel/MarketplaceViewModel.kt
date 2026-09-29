@@ -56,10 +56,22 @@ class MarketplaceViewModel(application: Application) : AndroidViewModel(applicat
                 )
             }
             try {
+                repository.syncPlatformSettingsFromFirestore()
+            } catch (_: Exception) {}
+            try {
                 repository.syncListingsFromFirestore()
             } catch (_: Exception) {}
             repository.authService.currentUserId?.let { uid ->
                 _currentUserId.value = uid
+            }
+        }
+        viewModelScope.launch {
+            repository.getPlatformSettingsFromFirestore().collect { res ->
+                if (res.isSuccess) {
+                    res.getOrNull()?.let { remoteSettings ->
+                        repository.syncPlatformSettingsFromFirestore()
+                    }
+                }
             }
         }
         viewModelScope.launch {

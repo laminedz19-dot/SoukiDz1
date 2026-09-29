@@ -55,10 +55,49 @@ class MarketplaceViewModel(application: Application) : AndroidViewModel(applicat
                 )
             }
             try {
+                repository.syncPlatformSettingsFromFirestore()
+            } catch (_: Exception) {}
+            try {
                 repository.syncListingsFromFirestore()
+            } catch (_: Exception) {}
+            try {
+                repository.syncUsersFromFirestore()
+            } catch (_: Exception) {}
+            try {
+                repository.syncPaymentsFromFirestore()
             } catch (_: Exception) {}
             repository.authService.currentUserId?.let { uid ->
                 _currentUserId.value = uid
+            }
+        }
+        viewModelScope.launch {
+            repository.getPlatformSettingsFromFirestore().collect { res ->
+                if (res.isSuccess) {
+                    res.getOrNull()?.let { remoteSettings ->
+                        repository.syncPlatformSettingsFromFirestore()
+                    }
+                }
+            }
+        }
+    }
+
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
+    fun refreshAllAdminData() {
+        if (_isRefreshing.value) return
+        _isRefreshing.value = true
+        viewModelScope.launch {
+            try {
+                repository.syncPlatformSettingsFromFirestore()
+                repository.syncListingsFromFirestore()
+                repository.syncUsersFromFirestore()
+                repository.syncPaymentsFromFirestore()
+                emitMessage("تم تحديث كافة بيانات الإدارة من السحابة بنجاح ✓")
+            } catch (e: Exception) {
+                emitMessage("تم تحديث البيانات: ${e.message}")
+            } finally {
+                _isRefreshing.value = false
             }
         }
     }

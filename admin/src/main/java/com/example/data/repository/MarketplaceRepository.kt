@@ -39,7 +39,7 @@ class MarketplaceRepository(
     suspend fun getListingDirect(id: String): ListingEntity? = db.listingDao().getListingByIdDirect(id)
 
     suspend fun syncListingsFromFirestore() {
-        val result = firestoreService.getPublishedListings()
+        val result = firestoreService.getAllListingsForAdmin()
         if (result.isSuccess) {
             val remoteListings = result.getOrNull().orEmpty()
             if (remoteListings.isNotEmpty()) {
@@ -66,6 +66,9 @@ class MarketplaceRepository(
     suspend fun deleteListing(id: String) {
         val listing = db.listingDao().getListingByIdDirect(id)
         db.listingDao().deleteListing(id)
+        try {
+            firestoreService.deleteListing(id)
+        } catch (_: Exception) {}
         if (listing != null) {
             try {
                 storageService.deleteAllListingImages(listing.userId, listing.id)
@@ -277,8 +280,30 @@ class MarketplaceRepository(
             firestoreService.saveUser(user)
         } catch (_: Exception) {}
     }
-    suspend fun updateBanStatus(userId: String, banned: Boolean) = db.userDao().updateBanStatus(userId, banned)
-    suspend fun updateVerification(userId: String, verified: Boolean) = db.userDao().updateVerificationStatus(userId, verified)
+    suspend fun updateBanStatus(userId: String, banned: Boolean) {
+        db.userDao().updateBanStatus(userId, banned)
+        try {
+            firestoreService.updateUserBanStatus(userId, banned)
+        } catch (_: Exception) {}
+    }
+
+    suspend fun updateVerification(userId: String, verified: Boolean) {
+        db.userDao().updateVerificationStatus(userId, verified)
+        try {
+            firestoreService.updateUserVerification(userId, verified)
+        } catch (_: Exception) {}
+    }
+
+    suspend fun syncUsersFromFirestore() {
+        val result = firestoreService.getAllUsers()
+        if (result.isSuccess) {
+            val users = result.getOrNull().orEmpty()
+            if (users.isNotEmpty()) {
+                val entities = users.map { it.toUserEntity() }
+                db.userDao().insertUsers(entities)
+            }
+        }
+    }
     suspend fun requestVerification(userId: String) = db.userDao().requestVerification(userId)
     suspend fun deleteUser(userId: String) = db.userDao().deleteUser(userId)
 
@@ -379,6 +404,37 @@ class MarketplaceRepository(
 
     // Platform Settings & Payments
     fun getPlatformSettings(): Flow<PlatformSettingsEntity?> = db.settingsDao().getSettings()
-    suspend fun updatePlatformSettings(settings: PlatformSettingsEntity) = db.settingsDao().insertOrUpdateSettings(settings)
+
+    suspend fun updatePlatformSettings(settings: PlatformSettingsEntity) {
+        db.settingsDao().insertOrUpdateSettings(settings)
+        try {
+            firestoreService.savePlatformSettings(settings)
+        } catch (_: Exception) {}
+    }
+
+    suspend fun syncPlatformSettingsFromFirestore() {
+        val result = firestoreService.getPlatformSettings()
+        if (result.isSuccess) {
+            result.getOrNull()?.let { remoteSettings ->
+                db.settingsDao().insertOrUpdateSettings(remoteSettings)
+            }
+        }
+    }
+
+    fun getPlatformSettingsFromFirestore(): Flow<Result<PlatformSettingsEntity?>> {
+        return firestoreService.getPlatformSettingsFlow()
+    }
+
     fun getAllPayments(): Flow<List<PaymentOrderEntity>> = db.paymentDao().getAllPayments()
+
+    suspend fun syncPaymentsFromFirestore() {
+        val result = firestoreService.getAllPayments()
+        if (result.isSuccess) {
+            val payments = result.getOrNull().orEmpty()
+            if (payments.isNotEmpty()) {
+                val entities = payments.map { it.toPaymentOrderEntity() }
+                db.paymentDao().insertPayments(entities)
+            }
+        }
+    }
 }
