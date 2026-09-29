@@ -252,52 +252,60 @@ class MarketplaceViewModel(application: Application) : AndroidViewModel(applicat
     val onlyNegotiable = MutableStateFlow(false)
     val sortBy = MutableStateFlow("NEWEST") // "NEWEST", "PRICE_ASC", "PRICE_DESC"
 
+    private data class SearchTextFilters(
+        val query: String,
+        val category: String?,
+        val wilaya: Int?,
+        val condition: String?
+    )
+
+    private data class SearchNumericFilters(
+        val minPrice: Long?,
+        val maxPrice: Long?,
+        val onlyNegotiable: Boolean,
+        val sortBy: String
+    )
+
     // Search Result
+    private val searchTextFilters = combine(
+        searchQuery, selectedCategory, selectedWilaya, selectedCondition
+    ) { query, category, wilaya, condition ->
+        SearchTextFilters(query, category, wilaya, condition)
+    }
+    private val searchNumericFilters = combine(
+        minPrice, maxPrice, onlyNegotiable, sortBy
+    ) { min, max, negotiable, sort ->
+        SearchNumericFilters(min, max, negotiable, sort)
+    }
     val filteredListings: StateFlow<List<ListingEntity>> = combine(
-        publishedListings,
-        searchQuery,
-        selectedCategory,
-        selectedWilaya,
-        selectedCondition,
-        minPrice,
-        maxPrice,
-        onlyNegotiable,
-        sortBy
-    ) { params ->
-        val list = params[0] as List<ListingEntity>
-        val query = params[1] as String
-        val cat = params[2] as String?
-        val wilaya = params[3] as Int?
-        val condition = params[4] as String?
-        val minP = params[5] as Long?
-        val maxP = params[6] as Long?
-        val neg = params[7] as Boolean
-        val sort = params[8] as String
-
-        list.filter { listing ->
-            val matchesQuery = query.isBlank() ||
-                    listing.title.contains(query, ignoreCase = true) ||
-                    listing.description.contains(query, ignoreCase = true) ||
-                    listing.commune.contains(query, ignoreCase = true) ||
-                    listing.wilayaName.contains(query, ignoreCase = true)
-
-            val matchesCat = cat == null || listing.categoryId == cat
-            val matchesWilaya = wilaya == null || listing.wilayaCode == wilaya
-            val matchesCondition = condition == null || listing.condition == condition
-            val matchesMinPrice = minP == null || listing.priceDzd >= minP
-            val matchesMaxPrice = maxP == null || listing.priceDzd <= maxP
-            val matchesNeg = !neg || listing.isNegotiable
-
-            matchesQuery && matchesCat && matchesWilaya && matchesCondition && matchesMinPrice && matchesMaxPrice && matchesNeg
+        publishedListings, searchTextFilters, searchNumericFilters
+    ) { listings, text, numeric ->
+        listings.filter { listing ->
+            val matchesQuery = text.query.isBlank() ||
+                    listing.title.contains(text.query, ignoreCase = true) ||
+                    listing.description.contains(text.query, ignoreCase = true) ||
+                    listing.commune.contains(text.query, ignoreCase = true) ||
+                    listing.wilayaName.contains(text.query, ignoreCase = true)
+            val matchesCat = text.category == null || listing.categoryId == text.category
+            val matchesWilaya = text.wilaya == null || listing.wilayaCode == text.wilaya
+            val matchesCondition = text.condition == null || listing.condition == text.condition
+            val matchesMinPrice = numeric.minPrice == null || listing.priceDzd >= numeric.minPrice
+            val matchesMaxPrice = numeric.maxPrice == null || listing.priceDzd <= numeric.maxPrice
+            val matchesNegotiable = !numeric.onlyNegotiable || listing.isNegotiable
+            matchesQuery && matchesCat && matchesWilaya && matchesCondition &&
+                    matchesMinPrice && matchesMaxPrice && matchesNegotiable
         }.let { filtered ->
-            when (sort) {
+            when (numeric.sortBy) {
                 "PRICE_ASC" -> filtered.sortedBy { it.priceDzd }
                 "PRICE_DESC" -> filtered.sortedByDescending { it.priceDzd }
-                else -> filtered.sortedWith(compareByDescending<ListingEntity> { it.isUrgent }.thenByDescending { it.isFeatured }.thenByDescending { it.createdAt })
+                else -> filtered.sortedWith(
+                    compareByDescending<ListingEntity> { it.isUrgent }
+                        .thenByDescending { it.isFeatured }
+                        .thenByDescending { it.createdAt }
+                )
             }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
     fun setLanguage(lang: String) {
         _language.value = lang
     }
