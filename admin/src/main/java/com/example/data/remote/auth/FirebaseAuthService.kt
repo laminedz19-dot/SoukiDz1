@@ -66,7 +66,7 @@ class FirebaseAuthService(
             val tokenResult = user.getIdToken(true).await()
             val claims = tokenResult.claims
             val userEmail = user.email?.trim()?.lowercase().orEmpty()
-            val adminEmails = setOf("achridz.19@gmail.com", "admin@soukidz.dz")
+            val adminEmails = setOf("laminedz.19@gmail.com", "admin@soukidz.dz")
             val isAdmin = claims["admin"] == true || claims["admin"] == "true" || userEmail in adminEmails
 
             if (!isAdmin) {
@@ -95,7 +95,7 @@ class FirebaseAuthService(
             val tokenResult = user.getIdToken(false).await()
             val claims = tokenResult.claims
             val userEmail = user.email?.trim()?.lowercase().orEmpty()
-            val adminEmails = setOf("achridz.19@gmail.com", "admin@soukidz.dz")
+            val adminEmails = setOf("laminedz.19@gmail.com", "admin@soukidz.dz")
             claims["admin"] == true || claims["admin"] == "true" || userEmail in adminEmails
         } catch (e: Exception) {
             Log.w(TAG, "Failed to verify admin claim on current user: ${e.message}")
