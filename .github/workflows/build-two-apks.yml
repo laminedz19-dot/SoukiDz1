@@ -5,6 +5,9 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build user and admin APKs
@@ -22,7 +25,7 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: platform-tools platforms;android-35 platforms;android-34 build-tools;35.0.0
+          packages: platform-tools platforms;android-36 platforms;android-35 build-tools;36.0.0
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -61,3 +64,19 @@ jobs:
         with:
           name: souqi-dz-user-apk
           path: dist-apks/SouqiDz-User.apk
+
+      - name: Publish Direct APK Download Release
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main'
+        with:
+          tag_name: v1.0.0
+          name: "Souqi DZ APKs (تحميل مباشر بدون فك ضغط)"
+          body: |
+            ### تحميل مباشر لملفات APK بدون الحاجة لفك الضغط:
+            - اضغط مباشرة على ملف **SouqiDz-User.apk** أدناه لتنزيله وتثبيته فوراً.
+            - اضغط مباشرة على ملف **SouqiDz-Admin.apk** أدناه لتنزيل تطبيق الإدارة وتثبيته فوراً.
+          files: |
+            dist-apks/SouqiDz-User.apk
+            dist-apks/SouqiDz-Admin.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
