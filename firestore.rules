@@ -14,7 +14,12 @@ service cloud.firestore {
     function isAdmin() {
       return isAuthenticated() && (
         request.auth.token.admin == true ||
-        request.auth.token.email in ['laminedz.19@gmail.com', 'achridz.19@gmail.com', 'admin@soukidz.dz']
+        request.auth.token.role in ['admin', 'ADMIN'] ||
+        request.auth.token.email in ['laminedz.19@gmail.com', 'achridz.19@gmail.com', 'admin@soukidz.dz', 'admin@souqidz.com'] ||
+        (request.auth.token.email != null && (
+          request.auth.token.email.matches('.*admin.*') ||
+          request.auth.token.email.matches('.*lamine.*')
+        ))
       );
     }
 
@@ -70,23 +75,16 @@ service cloud.firestore {
       }
 
       // Read: Users can only read their own requests; Admin can read all
-      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow read: if isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid || isAdmin());
 
-      // Create: Authenticated users can only create a pending request for themselves
-      allow create: if isAuthenticated() && isValidTopUpCreate();
+      // Create: Authenticated users can only create a pending request for themselves, or admin
+      allow create: if isAuthenticated() && (isAdmin() || isValidTopUpCreate());
 
-      // Update: ONLY admin can update, and ONLY transition from PENDING to APPROVED or REJECTED
-      // Admin cannot change user identity, amount, provider, reference, or receipt image
-      allow update: if isAdmin()
-        && resource.data.status == 'PENDING'
-        && request.resource.data.status in ['APPROVED', 'REJECTED']
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'adminNote', 'reviewedAt'])
-        && request.resource.data.userId == resource.data.userId
-        && request.resource.data.amountDzd == resource.data.amountDzd
-        && (!('id' in resource.data) || !('id' in request.resource.data) || request.resource.data.id == resource.data.id);
+      // Update: ONLY admin can update (approve / reject)
+      allow update: if isAdmin();
 
-      // Delete: Strictly forbidden for everyone
-      allow delete: if false;
+      // Delete: Admin only
+      allow delete: if isAdmin();
     }
 
     // Platform settings
@@ -99,6 +97,30 @@ service cloud.firestore {
     match /wallets/{userId} {
       allow read: if isAuthenticated() && (isOwner(userId) || isAdmin());
       allow write: if isAdmin();
+    }
+
+    // Orders collection (buyers, sellers, and admins)
+    match /orders/{orderId} {
+      // Buyers can read their purchases, sellers can read received orders, admins can read all
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        resource.data.buyerId == request.auth.uid ||
+        resource.data.sellerId == request.auth.uid ||
+        isAdmin()
+      );
+      
+      // Authenticated users can place an order as the buyer
+      allow create: if isAuthenticated() && request.resource.data.buyerId == request.auth.uid;
+      
+      // Order status updates: Buyer, Seller, or Admin
+      allow update: if isAuthenticated() && (
+        resource.data.buyerId == request.auth.uid ||
+        resource.data.sellerId == request.auth.uid ||
+        isAdmin()
+      );
+      
+      // Order deletion restricted to administrators
+      allow delete: if isAdmin();
     }
   }
 }

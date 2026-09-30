@@ -5,6 +5,8 @@ import com.example.data.local.ListingEntity
 import com.example.data.local.PlatformSettingsEntity
 import com.example.data.local.UserEntity
 import com.google.firebase.FirebaseApp
+import com.google.firebase.firestore.CollectionReference
+import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
@@ -26,6 +28,7 @@ class FirestoreService(
         const val COLLECTION_SETTINGS = "settings"
         const val COLLECTION_TOP_UP_REQUESTS = "topUpRequests"
         const val COLLECTION_WALLETS = "wallets"
+        const val COLLECTION_ORDERS = "orders"
     }
 
     private val firestore: FirebaseFirestore? = customFirestore ?: run {
@@ -62,7 +65,8 @@ class FirestoreService(
                 .document(userId)
                 .get()
                 .await()
-            Result.success(snapshot.toObject(FirestoreUser::class.java))
+            val user = try { snapshot.toObject(FirestoreUser::class.java) } catch (_: Exception) { null }
+            Result.success(user)
         } catch (e: Exception) {
             Log.e(TAG, "Error fetching user from Firestore: ${e.message}", e)
             Result.failure(e)
@@ -111,7 +115,9 @@ class FirestoreService(
                 .whereEqualTo("status", "PUBLISHED")
                 .get()
                 .await()
-            val listings = snapshot.documents.mapNotNull { it.toObject(FirestoreListing::class.java) }
+            val listings = snapshot.documents.mapNotNull { doc ->
+                try { doc.toObject(FirestoreListing::class.java) } catch (_: Exception) { null }
+            }
             Result.success(listings)
         } catch (e: Exception) {
             Log.e(TAG, "Error fetching published listings: ${e.message}", e)
@@ -131,7 +137,9 @@ class FirestoreService(
                         return@addSnapshotListener
                     }
                     if (snapshot != null) {
-                        val listings = snapshot.documents.mapNotNull { it.toObject(FirestoreListing::class.java) }
+                        val listings = snapshot.documents.mapNotNull { doc ->
+                            try { doc.toObject(FirestoreListing::class.java) } catch (_: Exception) { null }
+                        }
                         trySend(listings)
                     }
                 }
@@ -200,8 +208,9 @@ class FirestoreService(
                         return@addSnapshotListener
                     }
                     if (snapshot != null) {
-                        val list = snapshot.documents.mapNotNull { it.toObject(FirestoreTopUpRequest::class.java) }
-                            .sortedByDescending { it.createdAt?.time ?: 0L }
+                        val list = snapshot.documents.mapNotNull { doc ->
+                            try { doc.toObject(FirestoreTopUpRequest::class.java) } catch (_: Exception) { null }
+                        }.sortedByDescending { it.createdAt?.time ?: 0L }
                         trySend(Result.success(list))
                     }
                 }
@@ -220,8 +229,9 @@ class FirestoreService(
                         return@addSnapshotListener
                     }
                     if (snapshot != null) {
-                        val list = snapshot.documents.mapNotNull { it.toObject(FirestoreTopUpRequest::class.java) }
-                            .sortedByDescending { it.createdAt?.time ?: 0L }
+                        val list = snapshot.documents.mapNotNull { doc ->
+                            try { doc.toObject(FirestoreTopUpRequest::class.java) } catch (_: Exception) { null }
+                        }.sortedByDescending { it.createdAt?.time ?: 0L }
                         trySend(Result.success(list))
                     }
                 }
@@ -287,7 +297,7 @@ class FirestoreService(
         return try {
             val doc = db.collection(COLLECTION_WALLETS).document(userId).get().await()
             if (doc.exists()) {
-                val wallet = doc.toObject(FirestoreWallet::class.java)
+                val wallet = try { doc.toObject(FirestoreWallet::class.java) } catch (_: Exception) { null }
                 Result.success(wallet)
             } else {
                 Result.success(null)
@@ -311,7 +321,7 @@ class FirestoreService(
                         return@addSnapshotListener
                     }
                     if (snapshot != null && snapshot.exists()) {
-                        val wallet = snapshot.toObject(FirestoreWallet::class.java)
+                        val wallet = try { snapshot.toObject(FirestoreWallet::class.java) } catch (_: Exception) { null }
                         trySend(Result.success(wallet))
                     } else {
                         trySend(Result.success(null))
@@ -356,7 +366,9 @@ class FirestoreService(
         val db = firestore ?: return Result.success(null)
         return try {
             val doc = db.collection(COLLECTION_SETTINGS).document("global").get().await()
-            val settings = doc.toObject(FirestoreSettings::class.java)?.toPlatformSettingsEntity()
+            val settings = try {
+                doc.toObject(FirestoreSettings::class.java)?.toPlatformSettingsEntity()
+            } catch (_: Exception) { null }
             Result.success(settings)
         } catch (e: Exception) {
             Log.e(TAG, "Error fetching platform settings from Firestore: ${e.message}", e)
@@ -374,7 +386,9 @@ class FirestoreService(
                         return@addSnapshotListener
                     }
                     if (snapshot != null && snapshot.exists()) {
-                        val settings = snapshot.toObject(FirestoreSettings::class.java)?.toPlatformSettingsEntity()
+                        val settings = try {
+                            snapshot.toObject(FirestoreSettings::class.java)?.toPlatformSettingsEntity()
+                        } catch (_: Exception) { null }
                         trySend(Result.success(settings))
                     } else {
                         trySend(Result.success(null))
@@ -383,4 +397,212 @@ class FirestoreService(
             awaitClose { listener.remove() }
         }
     }
+
+    // --- ORDERS COLLECTION REFERENCES & METHODS ---
+
+    /**
+     * Direct Firestore CollectionReference for the "orders" collection.
+     */
+    fun getOrdersCollection(): CollectionReference? = firestore?.collection(COLLECTION_ORDERS)
+
+    /**
+     * Direct Firestore DocumentReference for a specific order.
+     */
+    fun getOrderDocument(orderId: String): DocumentReference? = getOrdersCollection()?.document(orderId)
+
+    /**
+     * Creates or places a new order in Firestore.
+     */
+    suspend fun createOrder(order: FirestoreOrder): Result<String> {
+        val db = firestore ?: return Result.failure(IllegalStateException("خدمة Firestore غير متصلة"))
+        return try {
+            val orderId = if (order.id.isNotBlank()) order.id else db.collection(COLLECTION_ORDERS).document().id
+            val orderWithId = order.copy(id = orderId)
+            db.collection(COLLECTION_ORDERS)
+                .document(orderId)
+                .set(orderWithId)
+                .await()
+            Log.i(TAG, "Order created successfully with ID: $orderId")
+            Result.success(orderId)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error creating order in Firestore: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Saves or overwrites an order in Firestore.
+     */
+    suspend fun saveOrder(order: FirestoreOrder): Result<Unit> {
+        val db = firestore ?: return Result.failure(IllegalStateException("خدمة Firestore غير متصلة"))
+        return try {
+            db.collection(COLLECTION_ORDERS)
+                .document(order.id)
+                .set(order)
+                .await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error saving order in Firestore: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Retrieves an order by its ID from Firestore.
+     */
+    suspend fun getOrder(orderId: String): Result<FirestoreOrder?> {
+        val db = firestore ?: return Result.success(null)
+        if (orderId.isBlank()) return Result.success(null)
+        return try {
+            val doc = db.collection(COLLECTION_ORDERS).document(orderId).get().await()
+            if (doc.exists()) {
+                val order = try { doc.toObject(FirestoreOrder::class.java) } catch (_: Exception) { null }
+                Result.success(order)
+            } else {
+                Result.success(null)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error retrieving order $orderId: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Real-time Flow observing a specific order's status and details.
+     */
+    fun getOrderFlow(orderId: String): Flow<Result<FirestoreOrder?>> {
+        val db = firestore ?: return emptyFlow()
+        if (orderId.isBlank()) return emptyFlow()
+        return callbackFlow {
+            val listener = db.collection(COLLECTION_ORDERS).document(orderId)
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        Log.e(TAG, "Error listening to order $orderId: ${error.message}", error)
+                        trySend(Result.failure(error))
+                        return@addSnapshotListener
+                    }
+                    if (snapshot != null && snapshot.exists()) {
+                        val order = try { snapshot.toObject(FirestoreOrder::class.java) } catch (_: Exception) { null }
+                        trySend(Result.success(order))
+                    } else {
+                        trySend(Result.success(null))
+                    }
+                }
+            awaitClose { listener.remove() }
+        }
+    }
+
+    /**
+     * Real-time Flow retrieving all orders for a buyer (user's purchases), sorted by date.
+     */
+    fun getUserOrdersFlow(buyerId: String): Flow<Result<List<FirestoreOrder>>> {
+        val db = firestore ?: return kotlinx.coroutines.flow.flowOf(Result.failure(IllegalStateException("خدمة Firestore غير مهيأة")))
+        if (buyerId.isBlank()) return kotlinx.coroutines.flow.flowOf(Result.success(emptyList()))
+        return callbackFlow {
+            val listener = db.collection(COLLECTION_ORDERS)
+                .whereEqualTo("buyerId", buyerId)
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        Log.e(TAG, "Error listening to user $buyerId orders: ${error.message}", error)
+                        trySend(Result.failure(error))
+                        return@addSnapshotListener
+                    }
+                    if (snapshot != null) {
+                        val orders = snapshot.documents.mapNotNull { doc ->
+                            try { doc.toObject(FirestoreOrder::class.java) } catch (_: Exception) { null }
+                        }.sortedByDescending { it.createdAt?.time ?: 0L }
+                        trySend(Result.success(orders))
+                    }
+                }
+            awaitClose { listener.remove() }
+        }
+    }
+
+    /**
+     * Real-time Flow retrieving all orders received by a seller, sorted by date.
+     */
+    fun getSellerOrdersFlow(sellerId: String): Flow<Result<List<FirestoreOrder>>> {
+        val db = firestore ?: return kotlinx.coroutines.flow.flowOf(Result.failure(IllegalStateException("خدمة Firestore غير مهيأة")))
+        if (sellerId.isBlank()) return kotlinx.coroutines.flow.flowOf(Result.success(emptyList()))
+        return callbackFlow {
+            val listener = db.collection(COLLECTION_ORDERS)
+                .whereEqualTo("sellerId", sellerId)
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        Log.e(TAG, "Error listening to seller $sellerId orders: ${error.message}", error)
+                        trySend(Result.failure(error))
+                        return@addSnapshotListener
+                    }
+                    if (snapshot != null) {
+                        val orders = snapshot.documents.mapNotNull { doc ->
+                            try { doc.toObject(FirestoreOrder::class.java) } catch (_: Exception) { null }
+                        }.sortedByDescending { it.createdAt?.time ?: 0L }
+                        trySend(Result.success(orders))
+                    }
+                }
+            awaitClose { listener.remove() }
+        }
+    }
+
+    /**
+     * Real-time Flow retrieving all orders for admin oversight.
+     */
+    fun getAllOrdersAdminFlow(): Flow<Result<List<FirestoreOrder>>> {
+        val db = firestore ?: return kotlinx.coroutines.flow.flowOf(Result.failure(IllegalStateException("خدمة Firestore غير مهيأة")))
+        return callbackFlow {
+            val listener = db.collection(COLLECTION_ORDERS)
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        Log.e(TAG, "Error listening to all orders: ${error.message}", error)
+                        trySend(Result.failure(error))
+                        return@addSnapshotListener
+                    }
+                    if (snapshot != null) {
+                        val orders = snapshot.documents.mapNotNull { doc ->
+                            try { doc.toObject(FirestoreOrder::class.java) } catch (_: Exception) { null }
+                        }.sortedByDescending { it.createdAt?.time ?: 0L }
+                        trySend(Result.success(orders))
+                    }
+                }
+            awaitClose { listener.remove() }
+        }
+    }
+
+    /**
+     * Updates an order's status and tracking information in Firestore.
+     */
+    suspend fun updateOrderStatus(
+        orderId: String,
+        newStatus: String,
+        statusNote: String = "",
+        trackingNumber: String? = null
+    ): Result<Unit> {
+        val db = firestore ?: return Result.failure(IllegalStateException("خدمة Firestore غير متصلة"))
+        return try {
+            val updates = mutableMapOf<String, Any>(
+                "status" to newStatus,
+                "statusNote" to statusNote,
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+            if (!trackingNumber.isNullOrBlank()) {
+                updates["trackingNumber"] = trackingNumber
+            }
+            if (newStatus == OrderStatus.DELIVERED) {
+                updates["deliveredAt"] = System.currentTimeMillis()
+                updates["isPaid"] = true
+            } else if (newStatus == OrderStatus.CANCELLED || newStatus == OrderStatus.REJECTED) {
+                updates["cancelledAt"] = System.currentTimeMillis()
+            }
+            db.collection(COLLECTION_ORDERS)
+                .document(orderId)
+                .update(updates)
+                .await()
+            Log.i(TAG, "Updated order $orderId status to: $newStatus")
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updating order status in Firestore: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
 }
+

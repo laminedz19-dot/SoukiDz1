@@ -165,3 +165,35 @@ data class TopUpRequestEntity(
     val createdAt: Long,
     val reviewedAt: Long
 )
+
+@Entity(tableName = "orders")
+data class OrderEntity(
+    @PrimaryKey val id: String,
+    val orderNumber: String,
+    val listingId: String,
+    val listingTitle: String,
+    val listingImageUrl: String,
+    val sellerId: String,
+    val sellerName: String,
+    val sellerPhone: String,
+    val buyerId: String,
+    val buyerName: String,
+    val buyerPhone: String,
+    val buyerWilaya: String,
+    val buyerCommune: String,
+    val buyerAddress: String,
+    val quantity: Int,
+    val unitPriceDzd: Int,
+    val deliveryFeeDzd: Int,
+    val totalAmountDzd: Int,
+    val paymentMethod: String, // "COD", "WALLET", "BARIDIMOB"
+    val isPaid: Boolean,
+    val status: String, // "PENDING", "CONFIRMED", "SHIPPED", "DELIVERED", "CANCELLED", "REJECTED"
+    val trackingNumber: String,
+    val buyerNotes: String,
+    val statusNote: String,
+    val createdAt: Long,
+    val updatedAt: Long,
+    val deliveredAt: Long = 0L,
+    val cancelledAt: Long = 0L
+)

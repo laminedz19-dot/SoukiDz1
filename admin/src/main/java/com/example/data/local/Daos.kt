@@ -138,6 +138,9 @@ interface TopUpRequestDao {
     @Query("SELECT * FROM top_up_requests ORDER BY createdAt DESC")
     fun getAllRequests(): Flow<List<TopUpRequestEntity>>
 
+    @Query("SELECT * FROM top_up_requests ORDER BY createdAt DESC")
+    suspend fun getAllRequestsDirect(): List<TopUpRequestEntity>
+
     @Query("SELECT * FROM top_up_requests WHERE userId = :userId ORDER BY createdAt DESC")
     fun getUserRequests(userId: String): Flow<List<TopUpRequestEntity>>
 
@@ -221,4 +224,34 @@ interface PlatformSettingsDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertOrUpdateSettings(settings: PlatformSettingsEntity)
+}
+
+@Dao
+interface OrderDao {
+    @Query("SELECT * FROM orders ORDER BY createdAt DESC")
+    fun getAllOrders(): Flow<List<OrderEntity>>
+
+    @Query("SELECT * FROM orders WHERE buyerId = :buyerId ORDER BY createdAt DESC")
+    fun getOrdersByBuyer(buyerId: String): Flow<List<OrderEntity>>
+
+    @Query("SELECT * FROM orders WHERE sellerId = :sellerId ORDER BY createdAt DESC")
+    fun getOrdersBySeller(sellerId: String): Flow<List<OrderEntity>>
+
+    @Query("SELECT * FROM orders WHERE id = :orderId LIMIT 1")
+    fun getOrderById(orderId: String): Flow<OrderEntity?>
+
+    @Query("SELECT * FROM orders WHERE id = :orderId LIMIT 1")
+    suspend fun getOrderByIdDirect(orderId: String): OrderEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertOrder(order: OrderEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertOrders(orders: List<OrderEntity>)
+
+    @Query("UPDATE orders SET status = :status, statusNote = :statusNote, updatedAt = :updatedAt WHERE id = :orderId")
+    suspend fun updateOrderStatus(orderId: String, status: String, statusNote: String, updatedAt: Long)
+
+    @Query("DELETE FROM orders WHERE id = :orderId")
+    suspend fun deleteOrder(orderId: String)
 }

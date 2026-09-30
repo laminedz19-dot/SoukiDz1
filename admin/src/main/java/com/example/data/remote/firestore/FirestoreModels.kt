@@ -1,6 +1,7 @@
 package com.example.data.remote.firestore
 
 import com.example.data.local.ListingEntity
+import com.example.data.local.OrderEntity
 import com.example.data.local.PaymentOrderEntity
 import com.example.data.local.PlatformSettingsEntity
 import com.example.data.local.TopUpRequestEntity
@@ -373,5 +374,155 @@ data class FirestoreSettings(
         }
     }
 }
+
+/**
+ * Order status constants and helpers.
+ */
+object OrderStatus {
+    const val PENDING = "PENDING"       // قيد المراجعة / في انتظار تأكيد البائع
+    const val CONFIRMED = "CONFIRMED"   // تم التأكيد من البائع وجاري التجهيز
+    const val SHIPPED = "SHIPPED"       // قيد الشحن / خرج للتوصيل مع شركة التوصيل
+    const val DELIVERED = "DELIVERED"   // تم الاستلام بنجاح
+    const val CANCELLED = "CANCELLED"   // تم الإلغاء من قبل المشتري
+    const val REJECTED = "REJECTED"     // مرفوض من قبل البائع (نفاذ الكمية أو تعذر التوصيل)
+
+    fun getDisplayName(status: String, lang: String = "ar"): String {
+        return when (status) {
+            PENDING -> if (lang == "ar") "قيد الانتظار" else "En attente"
+            CONFIRMED -> if (lang == "ar") "مؤكد" else "Confirmée"
+            SHIPPED -> if (lang == "ar") "قيد التوصيل" else "En livraison"
+            DELIVERED -> if (lang == "ar") "تم التسليم" else "Livrée"
+            CANCELLED -> if (lang == "ar") "ملغاة" else "Annulée"
+            REJECTED -> if (lang == "ar") "مرفوضة" else "Refusée"
+            else -> status
+        }
+    }
+}
+
+/**
+ * Supported payment methods for orders.
+ */
+object OrderPaymentMethod {
+    const val COD = "COD"               // الدفع عند الاستلام
+    const val WALLET = "WALLET"         // خصم من رصيد المحفظة
+    const val BARIDIMOB = "BARIDIMOB"   // تحويل بريدي موب
+
+    fun getDisplayName(method: String, lang: String = "ar"): String {
+        return when (method) {
+            COD -> if (lang == "ar") "الدفع عند الاستلام" else "Paiement à la livraison"
+            WALLET -> if (lang == "ar") "رصيد المحفظة" else "Solde du portefeuille"
+            BARIDIMOB -> if (lang == "ar") "بريدي موب / CCP" else "BaridiMob / CCP"
+            else -> method
+        }
+    }
+}
+
+/**
+ * Firestore data model for the "orders" collection.
+ * Tracks purchase orders between buyers and sellers, including delivery and payment status.
+ */
+@IgnoreExtraProperties
+data class FirestoreOrder(
+    @DocumentId
+    val id: String = "",
+    val orderNumber: String = "",
+    val listingId: String = "",
+    val listingTitle: String = "",
+    val listingImageUrl: String = "",
+    val sellerId: String = "",
+    val sellerName: String = "",
+    val sellerPhone: String = "",
+    val buyerId: String = "",
+    val buyerName: String = "",
+    val buyerPhone: String = "",
+    val buyerWilaya: String = "",
+    val buyerCommune: String = "",
+    val buyerAddress: String = "",
+    val quantity: Int = 1,
+    val unitPriceDzd: Int = 0,
+    val deliveryFeeDzd: Int = 0,
+    val totalAmountDzd: Int = 0,
+    val paymentMethod: String = "COD", // "COD", "WALLET", "BARIDIMOB"
+    val isPaid: Boolean = false,
+    val status: String = "PENDING", // "PENDING", "CONFIRMED", "SHIPPED", "DELIVERED", "CANCELLED", "REJECTED"
+    val trackingNumber: String = "",
+    val buyerNotes: String = "",
+    val statusNote: String = "",
+    @ServerTimestamp
+    val createdAt: Date? = null,
+    @ServerTimestamp
+    val updatedAt: Date? = null,
+    val deliveredAt: Long = 0L,
+    val cancelledAt: Long = 0L
+) {
+    fun toOrderEntity(): OrderEntity {
+        return OrderEntity(
+            id = id,
+            orderNumber = orderNumber,
+            listingId = listingId,
+            listingTitle = listingTitle,
+            listingImageUrl = listingImageUrl,
+            sellerId = sellerId,
+            sellerName = sellerName,
+            sellerPhone = sellerPhone,
+            buyerId = buyerId,
+            buyerName = buyerName,
+            buyerPhone = buyerPhone,
+            buyerWilaya = buyerWilaya,
+            buyerCommune = buyerCommune,
+            buyerAddress = buyerAddress,
+            quantity = quantity,
+            unitPriceDzd = unitPriceDzd,
+            deliveryFeeDzd = deliveryFeeDzd,
+            totalAmountDzd = totalAmountDzd,
+            paymentMethod = paymentMethod,
+            isPaid = isPaid,
+            status = status,
+            trackingNumber = trackingNumber,
+            buyerNotes = buyerNotes,
+            statusNote = statusNote,
+            createdAt = createdAt?.time ?: System.currentTimeMillis(),
+            updatedAt = updatedAt?.time ?: System.currentTimeMillis(),
+            deliveredAt = deliveredAt,
+            cancelledAt = cancelledAt
+        )
+    }
+
+    companion object {
+        fun fromOrderEntity(entity: OrderEntity): FirestoreOrder {
+            return FirestoreOrder(
+                id = entity.id,
+                orderNumber = entity.orderNumber,
+                listingId = entity.listingId,
+                listingTitle = entity.listingTitle,
+                listingImageUrl = entity.listingImageUrl,
+                sellerId = entity.sellerId,
+                sellerName = entity.sellerName,
+                sellerPhone = entity.sellerPhone,
+                buyerId = entity.buyerId,
+                buyerName = entity.buyerName,
+                buyerPhone = entity.buyerPhone,
+                buyerWilaya = entity.buyerWilaya,
+                buyerCommune = entity.buyerCommune,
+                buyerAddress = entity.buyerAddress,
+                quantity = entity.quantity,
+                unitPriceDzd = entity.unitPriceDzd,
+                deliveryFeeDzd = entity.deliveryFeeDzd,
+                totalAmountDzd = entity.totalAmountDzd,
+                paymentMethod = entity.paymentMethod,
+                isPaid = entity.isPaid,
+                status = entity.status,
+                trackingNumber = entity.trackingNumber,
+                buyerNotes = entity.buyerNotes,
+                statusNote = entity.statusNote,
+                createdAt = Date(entity.createdAt),
+                updatedAt = Date(entity.updatedAt),
+                deliveredAt = entity.deliveredAt,
+                cancelledAt = entity.cancelledAt
+            )
+        }
+    }
+}
+
 
 

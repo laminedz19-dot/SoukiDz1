@@ -21,9 +21,10 @@ import kotlinx.coroutines.launch
         ReportEntity::class,
         FavoriteEntity::class,
         PlatformSettingsEntity::class,
-        TopUpRequestEntity::class
+        TopUpRequestEntity::class,
+        OrderEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -37,6 +38,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun reportDao(): ReportDao
     abstract fun favoriteDao(): FavoriteDao
     abstract fun settingsDao(): PlatformSettingsDao
+    abstract fun orderDao(): OrderDao
 
     companion object {
         @Volatile
@@ -49,13 +51,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "souqi_dz.db"
                 )
-                    // Destructive migration is limited to debug builds so a release update
-                    // cannot silently erase wallets, listings, or messages.
-                    .also { builder ->
-                        if (com.example.BuildConfig.DEBUG) {
-                            builder.fallbackToDestructiveMigration()
-                        }
-                    }
+                    .fallbackToDestructiveMigration()
                     .addCallback(DatabaseCallback())
                     .build()
                 INSTANCE = instance

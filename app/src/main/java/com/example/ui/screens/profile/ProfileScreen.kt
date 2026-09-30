@@ -484,7 +484,8 @@ fun ProfileScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        val isUserLoggedIn = viewModel.repository.authService.currentUser != null
+                        val currentUid = viewModel.currentUserId.value
+                        val isUserLoggedIn = currentUid.isNotBlank()
                         if (!isUserLoggedIn) {
                             topUpErrorText = "يرجى تسجيل الدخول أولاً بحسابك لإرسال طلب الشحن والوصل إلى المشرف."
                             return@Button

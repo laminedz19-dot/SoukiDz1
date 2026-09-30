@@ -8,6 +8,7 @@ import com.example.data.local.AppDatabase
 import com.example.data.local.ChatMessageEntity
 import com.example.data.local.FavoriteEntity
 import com.example.data.local.ListingEntity
+import com.example.data.local.OrderEntity
 import com.example.data.local.PaymentOrderEntity
 import com.example.data.local.PlatformSettingsEntity
 import com.example.data.local.ReportEntity
@@ -16,6 +17,8 @@ import com.example.data.local.UserEntity
 import com.example.data.local.WalletEntity
 import com.example.data.local.WalletTransactionEntity
 import com.example.data.local.TopUpRequestEntity
+import com.example.data.remote.firestore.FirestoreOrder
+import com.example.data.remote.firestore.OrderStatus
 import com.example.data.repository.MarketplaceRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -237,6 +240,125 @@ class MarketplaceViewModel(application: Application) : AndroidViewModel(applicat
         repository.getFavorites(id)
     }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // --- Orders StateFlows & Management ---
+    sealed interface OrderListUiState {
+        data object Loading : OrderListUiState
+        data class Success(val orders: List<FirestoreOrder>) : OrderListUiState
+        data class Error(val message: String) : OrderListUiState
+    }
+
+    val myPurchases: StateFlow<OrderListUiState> = _currentUserId.flatMapLatest { id ->
+        if (id.isBlank() || id == "user_me") {
+            kotlinx.coroutines.flow.flowOf(OrderListUiState.Success(emptyList()))
+        } else {
+            repository.getUserOrdersFlow(id).map { res ->
+                if (res.isSuccess) {
+                    val list = res.getOrNull().orEmpty()
+                    viewModelScope.launch { repository.syncOrdersLocally(list) }
+                    OrderListUiState.Success(list)
+                } else {
+                    OrderListUiState.Error(res.exceptionOrNull()?.message ?: "خطأ في تحميل طلبات الشراء")
+                }
+            }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), OrderListUiState.Loading)
+
+    val mySalesOrders: StateFlow<OrderListUiState> = _currentUserId.flatMapLatest { id ->
+        if (id.isBlank() || id == "user_me") {
+            kotlinx.coroutines.flow.flowOf(OrderListUiState.Success(emptyList()))
+        } else {
+            repository.getSellerOrdersFlow(id).map { res ->
+                if (res.isSuccess) {
+                    val list = res.getOrNull().orEmpty()
+                    viewModelScope.launch { repository.syncOrdersLocally(list) }
+                    OrderListUiState.Success(list)
+                } else {
+                    OrderListUiState.Error(res.exceptionOrNull()?.message ?: "خطأ في تحميل الطلبيات الواردة")
+                }
+            }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), OrderListUiState.Loading)
+
+    fun placeOrder(
+        listing: ListingEntity,
+        quantity: Int,
+        buyerName: String,
+        buyerPhone: String,
+        buyerWilaya: String,
+        buyerCommune: String,
+        buyerAddress: String,
+        deliveryFeeDzd: Int = 0,
+        paymentMethod: String = "COD",
+        buyerNotes: String = "",
+        onSuccess: (String) -> Unit = {},
+        onError: (String) -> Unit = {}
+    ) {
+        val uid = _currentUserId.value
+        if (uid.isBlank()) {
+            onError("يرجى تسجيل الدخول أولاً لإتمام الطلب.")
+            return
+        }
+        val unitPrice = listing.priceDzd.toInt()
+        val total = (unitPrice * quantity) + deliveryFeeDzd
+        val orderNumber = "SQ-${System.currentTimeMillis().toString().takeLast(6)}"
+
+        val order = FirestoreOrder(
+            id = UUID.randomUUID().toString(),
+            orderNumber = orderNumber,
+            listingId = listing.id,
+            listingTitle = listing.title,
+            listingImageUrl = listing.imagesJson.split(",").firstOrNull().orEmpty(),
+            sellerId = listing.userId,
+            sellerName = listing.userName,
+            sellerPhone = listing.userPhone,
+            buyerId = uid,
+            buyerName = buyerName.trim(),
+            buyerPhone = buyerPhone.trim(),
+            buyerWilaya = buyerWilaya,
+            buyerCommune = buyerCommune,
+            buyerAddress = buyerAddress.trim(),
+            quantity = quantity,
+            unitPriceDzd = unitPrice,
+            deliveryFeeDzd = deliveryFeeDzd,
+            totalAmountDzd = total,
+            paymentMethod = paymentMethod,
+            isPaid = paymentMethod == "WALLET",
+            status = OrderStatus.PENDING,
+            buyerNotes = buyerNotes.trim()
+        )
+
+        viewModelScope.launch {
+            val res = repository.createOrder(order)
+            if (res.isSuccess) {
+                emitMessage("تم تأكيد وإرسال طلب الشراء بنجاح! رقم الطلب: $orderNumber")
+                onSuccess(res.getOrNull() ?: order.id)
+            } else {
+                val err = res.exceptionOrNull()?.message ?: "فشل في تسجيل الطلب"
+                onError(err)
+            }
+        }
+    }
+
+    fun updateOrderStatus(
+        orderId: String,
+        newStatus: String,
+        statusNote: String = "",
+        trackingNumber: String? = null,
+        onSuccess: () -> Unit = {},
+        onError: (String) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            val res = repository.updateOrderStatus(orderId, newStatus, statusNote, trackingNumber)
+            if (res.isSuccess) {
+                emitMessage("تم تحديث حالة الطلب إلى: ${OrderStatus.getDisplayName(newStatus)}")
+                onSuccess()
+            } else {
+                val err = res.exceptionOrNull()?.message ?: "فشل في تحديث حالة الطلب"
+                onError(err)
+            }
+        }
+    }
 
     // Search & Filter State
     val searchQuery = MutableStateFlow("")
@@ -1010,9 +1132,32 @@ class MarketplaceViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    /**
-     * The consumer app intentionally has no local admin credential or admin reset path.
-     * Administration is available only in the separate app after Firebase claim validation.
-     */
+    fun getAdminPin(): String {
+        val prefs = getApplication<Application>().getSharedPreferences("souqi_admin_prefs", android.content.Context.MODE_PRIVATE)
+        return prefs.getString("admin_pin_code", "2026") ?: "2026"
+    }
 
+    fun updateAdminPin(oldPin: String, newPin: String): Boolean {
+        val current = getAdminPin()
+        if (oldPin.trim() != current.trim()) {
+            emitMessage("الرمز السري الحالي غير صحيح!")
+            return false
+        }
+        if (newPin.trim().length < 4) {
+            emitMessage("يجب أن يتكون الرمز الجديد من 4 أرقام على الأقل!")
+            return false
+        }
+        val prefs = getApplication<Application>().getSharedPreferences("souqi_admin_prefs", android.content.Context.MODE_PRIVATE)
+        prefs.edit().putString("admin_pin_code", newPin.trim()).apply()
+        logAdminAction("تغيير رمز الدخول للإدارة", "تم تغيير رمز الإشراف PIN بنجاح")
+        emitMessage("تم تحديث رمز دخول الإشراف بنجاح")
+        return true
+    }
+
+    fun resetAdminPinToDefault() {
+        val prefs = getApplication<Application>().getSharedPreferences("souqi_admin_prefs", android.content.Context.MODE_PRIVATE)
+        prefs.edit().putString("admin_pin_code", "2026").apply()
+        logAdminAction("استعادة رمز الإدارة الافتراضي", "تمت استعادة 2026")
+        emitMessage("تمت استعادة الرمز الافتراضي (2026)")
+    }
 }

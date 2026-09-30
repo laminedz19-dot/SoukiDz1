@@ -658,6 +658,59 @@ fun AdminDashboardScreen(
                                             Text("ملاحظة المشرف: ${req.adminNote}", fontSize = 11.sp, color = if (req.status == "REJECTED") UrgentRed else EmeraldPrimary)
                                         }
 
+                                        Spacer(modifier = Modifier.height(8.dp))
+
+                                        if (req.receiptImageUri.isNotBlank()) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                                    .clickable {
+                                                        if (req.receiptImageUri.startsWith("http://") || req.receiptImageUri.startsWith("https://") || req.receiptImageUri.startsWith("data:")) {
+                                                            previewReceiptUrl = req.receiptImageUri
+                                                        } else {
+                                                            viewModel.resolveReceiptUrl(req.receiptImageUri) { resolved ->
+                                                                previewReceiptUrl = resolved ?: req.receiptImageUri
+                                                            }
+                                                        }
+                                                    }
+                                                    .padding(8.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                AsyncImage(
+                                                    model = req.receiptImageUri,
+                                                    contentDescription = "صورة الوصل",
+                                                    modifier = Modifier
+                                                        .size(54.dp)
+                                                        .clip(RoundedCornerShape(6.dp))
+                                                        .background(Color.Black.copy(alpha = 0.08f)),
+                                                    contentScale = ContentScale.Crop
+                                                )
+                                                Spacer(modifier = Modifier.width(10.dp))
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text("وصل الدفع مرفق ✓", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = EmeraldDark)
+                                                    Text("اضغط هنا لتكبير ومعاينة الوصل بدقة عالية", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                }
+                                                Icon(Icons.Default.Visibility, contentDescription = "معاينة", tint = EmeraldPrimary, modifier = Modifier.size(20.dp))
+                                            }
+                                        } else {
+                                            Surface(
+                                                shape = RoundedCornerShape(6.dp),
+                                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Icon(Icons.Default.Info, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Text("لم يُرفق العميل صورة وصل (اعتمد على رقم المرجع أعلاه)", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                }
+                                            }
+                                        }
+
                                         Spacer(modifier = Modifier.height(10.dp))
 
                                         Row(

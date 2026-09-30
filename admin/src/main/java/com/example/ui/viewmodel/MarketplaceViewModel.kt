@@ -8,6 +8,7 @@ import com.example.data.local.AppDatabase
 import com.example.data.local.ChatMessageEntity
 import com.example.data.local.FavoriteEntity
 import com.example.data.local.ListingEntity
+import com.example.data.local.OrderEntity
 import com.example.data.local.PaymentOrderEntity
 import com.example.data.local.PlatformSettingsEntity
 import com.example.data.local.ReportEntity
@@ -16,6 +17,8 @@ import com.example.data.local.UserEntity
 import com.example.data.local.WalletEntity
 import com.example.data.local.WalletTransactionEntity
 import com.example.data.local.TopUpRequestEntity
+import com.example.data.remote.firestore.FirestoreOrder
+import com.example.data.remote.firestore.OrderStatus
 import com.example.data.repository.MarketplaceRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -241,6 +244,44 @@ class MarketplaceViewModel(application: Application) : AndroidViewModel(applicat
     }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    // --- Orders Management (Admin) ---
+    sealed interface AdminOrderListUiState {
+        data object Loading : AdminOrderListUiState
+        data class Success(val orders: List<FirestoreOrder>) : AdminOrderListUiState
+        data class Error(val message: String) : AdminOrderListUiState
+    }
+
+    val adminOrdersUiState: StateFlow<AdminOrderListUiState> = repository.getAllOrdersAdminFlow().map { res ->
+        if (res.isSuccess) {
+            val list = res.getOrNull().orEmpty()
+            viewModelScope.launch { repository.syncOrdersLocally(list) }
+            AdminOrderListUiState.Success(list)
+        } else {
+            val err = res.exceptionOrNull()?.message ?: "خطأ أثناء تحميل الطلبيات من السحابة"
+            AdminOrderListUiState.Error(err)
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AdminOrderListUiState.Loading)
+
+    fun updateOrderStatus(
+        orderId: String,
+        newStatus: String,
+        statusNote: String = "",
+        trackingNumber: String? = null,
+        onSuccess: () -> Unit = {},
+        onError: (String) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            val res = repository.updateOrderStatus(orderId, newStatus, statusNote, trackingNumber)
+            if (res.isSuccess) {
+                emitMessage("تم تحديث حالة الطلب إلى: ${OrderStatus.getDisplayName(newStatus)}")
+                onSuccess()
+            } else {
+                val err = res.exceptionOrNull()?.message ?: "فشل في تحديث حالة الطلب"
+                onError(err)
+            }
+        }
+    }
+
     // Search & Filter State
     val searchQuery = MutableStateFlow("")
     val selectedCategory = MutableStateFlow<String?>(null)
@@ -252,60 +293,52 @@ class MarketplaceViewModel(application: Application) : AndroidViewModel(applicat
     val onlyNegotiable = MutableStateFlow(false)
     val sortBy = MutableStateFlow("NEWEST") // "NEWEST", "PRICE_ASC", "PRICE_DESC"
 
-    private data class SearchTextFilters(
-        val query: String,
-        val category: String?,
-        val wilaya: Int?,
-        val condition: String?
-    )
-
-    private data class SearchNumericFilters(
-        val minPrice: Long?,
-        val maxPrice: Long?,
-        val onlyNegotiable: Boolean,
-        val sortBy: String
-    )
-
     // Search Result
-    private val searchTextFilters = combine(
-        searchQuery, selectedCategory, selectedWilaya, selectedCondition
-    ) { query, category, wilaya, condition ->
-        SearchTextFilters(query, category, wilaya, condition)
-    }
-    private val searchNumericFilters = combine(
-        minPrice, maxPrice, onlyNegotiable, sortBy
-    ) { min, max, negotiable, sort ->
-        SearchNumericFilters(min, max, negotiable, sort)
-    }
     val filteredListings: StateFlow<List<ListingEntity>> = combine(
-        publishedListings, searchTextFilters, searchNumericFilters
-    ) { listings, text, numeric ->
-        listings.filter { listing ->
-            val matchesQuery = text.query.isBlank() ||
-                    listing.title.contains(text.query, ignoreCase = true) ||
-                    listing.description.contains(text.query, ignoreCase = true) ||
-                    listing.commune.contains(text.query, ignoreCase = true) ||
-                    listing.wilayaName.contains(text.query, ignoreCase = true)
-            val matchesCat = text.category == null || listing.categoryId == text.category
-            val matchesWilaya = text.wilaya == null || listing.wilayaCode == text.wilaya
-            val matchesCondition = text.condition == null || listing.condition == text.condition
-            val matchesMinPrice = numeric.minPrice == null || listing.priceDzd >= numeric.minPrice
-            val matchesMaxPrice = numeric.maxPrice == null || listing.priceDzd <= numeric.maxPrice
-            val matchesNegotiable = !numeric.onlyNegotiable || listing.isNegotiable
-            matchesQuery && matchesCat && matchesWilaya && matchesCondition &&
-                    matchesMinPrice && matchesMaxPrice && matchesNegotiable
+        publishedListings,
+        searchQuery,
+        selectedCategory,
+        selectedWilaya,
+        selectedCondition,
+        minPrice,
+        maxPrice,
+        onlyNegotiable,
+        sortBy
+    ) { params ->
+        val list = params[0] as List<ListingEntity>
+        val query = params[1] as String
+        val cat = params[2] as String?
+        val wilaya = params[3] as Int?
+        val condition = params[4] as String?
+        val minP = params[5] as Long?
+        val maxP = params[6] as Long?
+        val neg = params[7] as Boolean
+        val sort = params[8] as String
+
+        list.filter { listing ->
+            val matchesQuery = query.isBlank() ||
+                    listing.title.contains(query, ignoreCase = true) ||
+                    listing.description.contains(query, ignoreCase = true) ||
+                    listing.commune.contains(query, ignoreCase = true) ||
+                    listing.wilayaName.contains(query, ignoreCase = true)
+
+            val matchesCat = cat == null || listing.categoryId == cat
+            val matchesWilaya = wilaya == null || listing.wilayaCode == wilaya
+            val matchesCondition = condition == null || listing.condition == condition
+            val matchesMinPrice = minP == null || listing.priceDzd >= minP
+            val matchesMaxPrice = maxP == null || listing.priceDzd <= maxP
+            val matchesNeg = !neg || listing.isNegotiable
+
+            matchesQuery && matchesCat && matchesWilaya && matchesCondition && matchesMinPrice && matchesMaxPrice && matchesNeg
         }.let { filtered ->
-            when (numeric.sortBy) {
+            when (sort) {
                 "PRICE_ASC" -> filtered.sortedBy { it.priceDzd }
                 "PRICE_DESC" -> filtered.sortedByDescending { it.priceDzd }
-                else -> filtered.sortedWith(
-                    compareByDescending<ListingEntity> { it.isUrgent }
-                        .thenByDescending { it.isFeatured }
-                        .thenByDescending { it.createdAt }
-                )
+                else -> filtered.sortedWith(compareByDescending<ListingEntity> { it.isUrgent }.thenByDescending { it.isFeatured }.thenByDescending { it.createdAt })
             }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     fun setLanguage(lang: String) {
         _language.value = lang
     }

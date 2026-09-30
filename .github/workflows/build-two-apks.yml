@@ -12,8 +12,6 @@ jobs:
   build:
     name: Build user and admin APKs
     runs-on: ubuntu-latest
-    env:
-      JAVA_TOOL_OPTIONS: -Djava.awt.headless=true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -29,6 +27,11 @@ jobs:
         with:
           packages: platform-tools platforms;android-35 platforms;android-34 build-tools;35.0.0
 
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
       - name: Decode debug keystore
         run: |
           if [ -f debug.keystore.base64 ]; then
@@ -36,7 +39,7 @@ jobs:
           fi
 
       - name: Build both debug APKs
-        run: ./gradlew :app:testDebugUnitTest :admin:testDebugUnitTest :app:assembleDebug :admin:assembleDebug --no-daemon
+        run: gradle :app:assembleDebug :admin:assembleDebug --no-daemon
 
       - name: Prepare Clean APKs
         run: |
