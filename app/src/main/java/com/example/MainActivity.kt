@@ -92,8 +92,9 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun SouqiApp(viewModel: MarketplaceViewModel) {
-    var currentScreen by remember { 
-        mutableStateOf<Screen>(Screen.MainTab("home")) 
+    // New users start at the authentication choice after the splash screen.
+    var currentScreen by remember {
+        mutableStateOf<Screen>(Screen.AuthLanding)
     }
     var showSplash by remember { mutableStateOf(true) }
     val currentUserId by viewModel.currentUserId.collectAsState()
@@ -103,8 +104,9 @@ fun SouqiApp(viewModel: MarketplaceViewModel) {
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(Unit) {
-        // Splash is visual only; backend availability must never block startup.
-        delay(1_200L)
+        // Show the branded developer splash for exactly five seconds.
+        // Backend availability must never block startup.
+        delay(5_000L)
         showSplash = false
     }
 
