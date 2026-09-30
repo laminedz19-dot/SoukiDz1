@@ -18,7 +18,7 @@ import com.example.data.local.UserEntity
 import com.example.data.local.WalletEntity
 import com.example.data.local.WalletTransactionEntity
 import com.example.data.local.TopUpRequestEntity
-import com.example.data.remote.auth.FirebaseAuthService
+import com.example.data.remote.auth.AuthRepository
 import com.example.data.remote.firestore.FirestoreOrder
 import com.example.data.remote.firestore.FirestorePayment
 import com.example.data.remote.firestore.FirestoreService
@@ -38,7 +38,7 @@ import java.util.UUID
 class MarketplaceRepository(
     private val db: AppDatabase,
     val firestoreService: FirestoreService = FirestoreService(),
-    val authService: FirebaseAuthService = FirebaseAuthService(),
+    val authService: AuthRepository = AuthRepository(),
     val storageService: FirebaseStorageService = FirebaseStorageService(),
     val back4AppClient: Back4AppClient = Back4AppClient()
 ) {
