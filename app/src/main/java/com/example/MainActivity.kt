@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import com.example.ui.components.SouqiBottomBar
+import com.example.ui.components.VisitorAnnouncementBar
 import com.example.ui.components.SouqiTopBar
 import com.example.ui.screens.auth.AuthLandingScreen
 import com.example.ui.screens.auth.LoginScreen
@@ -138,7 +139,11 @@ fun SouqiApp(viewModel: MarketplaceViewModel) {
         Scaffold(
             topBar = {
                 if (currentScreen is Screen.MainTab) {
-                    SouqiTopBar(
+                    androidx.compose.foundation.layout.Column(
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        VisitorAnnouncementBar()
+                        SouqiTopBar(
                         currentUserId = currentUserId,
                         currentLang = currentLang,
                         onToggleLang = {
@@ -147,10 +152,11 @@ fun SouqiApp(viewModel: MarketplaceViewModel) {
                         onLogoClick = {
                             currentScreen = Screen.MainTab("home")
                         },
-                        onSecurityClick = {
-                            currentScreen = Screen.SecurityCenter
-                        }
-                    )
+                            onSecurityClick = {
+                                currentScreen = Screen.SecurityCenter
+                            }
+                        )
+                    }
                 }
             },
             bottomBar = {
