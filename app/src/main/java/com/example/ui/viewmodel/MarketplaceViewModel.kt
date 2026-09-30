@@ -94,11 +94,9 @@ class MarketplaceViewModel(application: Application) : AndroidViewModel(applicat
             _currentUserId.collectLatest { uid ->
                 if (uid.isNotBlank() && uid != "user_me" && uid != "admin_super") {
                     try {
-                        repository.getUserWalletFromFirestore(uid).collect { res ->
+                        repository.getWalletFromBack4App(uid).collect { res ->
                             if (res.isSuccess) {
-                                res.getOrNull()?.let { remoteWallet ->
-                                    repository.syncWalletLocally(remoteWallet.toWalletEntity())
-                                }
+                                res.getOrNull()?.let { repository.syncWalletLocally(it) }
                             }
                         }
                     } catch (e: Exception) {
@@ -211,7 +209,7 @@ class MarketplaceViewModel(application: Application) : AndroidViewModel(applicat
         if (id.isBlank() || id == "user_me" || id == "admin_super") {
             kotlinx.coroutines.flow.flowOf(TopUpSyncState.Success(emptyList()))
         } else {
-            repository.getUserTopUpRequestsFromFirestore(id).map { res ->
+            repository.getUserTopUpRequestsFromBack4App(id).map { res ->
                 if (res.isSuccess) {
                     TopUpSyncState.Success(res.getOrNull().orEmpty())
                 } else {
@@ -464,24 +462,23 @@ class MarketplaceViewModel(application: Application) : AndroidViewModel(applicat
                 val existingUser = repository.findUserByPhoneOrEmail(cleanPhone)
                     ?: if (cleanEmail.isNotEmpty()) repository.findUserByPhoneOrEmail(cleanEmail) else null
 
-                var userId = existingUser?.id ?: ("user_" + UUID.randomUUID().toString().replace("-", "").take(12))
+                var userId = existingUser?.id.orEmpty()
                 val authEmail = if (cleanEmail.isNotBlank()) cleanEmail else "${cleanPhone}@soukidz.dz"
 
-                try {
-                    withTimeoutOrNull(3500L) {
-                        val fbResult = repository.authService.registerWithEmail(authEmail, password)
-                        if (fbResult.isSuccess) {
-                            fbResult.getOrNull()?.uid?.let { userId = it }
-                        } else {
-                            val loginRes = repository.authService.loginWithEmail(authEmail, password)
-                            if (loginRes.isSuccess) {
-                                loginRes.getOrNull()?.uid?.let { userId = it }
-                            }
-                        }
-                    }
-                } catch (t: Throwable) {
-                    Log.w("MarketplaceViewModel", "Firebase auth during registration: ${t.message}")
-                }
+                val authResult = withTimeoutOrNull(12_000L) {
+                    val registration = repository.authService.registerWithEmail(authEmail, password)
+                    if (registration.isSuccess) registration
+                    else repository.authService.loginWithEmail(authEmail, password)
+                } ?: throw IllegalStateException("انتهت مهلة الاتصال بخدمة الحسابات. تحقق من الإنترنت ثم أعد المحاولة.")
+                val authenticatedUser = authResult.getOrElse { throw it }
+                userId = authenticatedUser?.uid?.takeIf { it.isNotBlank() }
+                    ?: throw IllegalStateException("لم يتم إنشاء جلسة مستخدم صالحة؛ لم يُحفظ الحساب.")
+                repository.authService.updateCurrentUserProfile(
+                    name = cleanName,
+                    phone = cleanPhone,
+                    wilaya = cleanWilaya,
+                    commune = cleanCommune
+                ).getOrElse { throw it }
 
                 val newUser = UserEntity(
                     id = userId,

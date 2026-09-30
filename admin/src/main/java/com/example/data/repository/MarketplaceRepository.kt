@@ -25,7 +25,12 @@ import com.example.data.remote.back4app.Back4AppClient
 import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
 import java.util.UUID
 
 class MarketplaceRepository(
@@ -189,57 +194,31 @@ class MarketplaceRepository(
     fun getAllTopUpRequests(): Flow<List<TopUpRequestEntity>> =
         db.topUpRequestDao().getAllRequests()
 
-    /**
-     * Primary Source of Truth: Listens directly to all top-up requests in Firestore.
-     * Caches requests in local Room and emits Result.failure on snapshot errors so the UI
-     * can display Error state instead of falsely displaying Empty.
-     */
-    /**
-     * Unified TopUp Stream: Fetches from Back4App cloud database, Firestore, and local Room cache.
-     * Guarantees Admin sees all requests immediately regardless of backend connectivity.
-     */
-    fun getAllTopUpRequestsFromFirestore(): Flow<Result<List<TopUpRequestEntity>>> = kotlinx.coroutines.flow.flow {
-        // 1. Immediately emit local Room cache
+    /** Polls the Back4App source of truth and keeps Room as an offline cache. */
+    fun getAllTopUpRequestsFromBack4App(): Flow<Result<List<TopUpRequestEntity>>> = flow {
         val localList = try {
             db.topUpRequestDao().getAllRequestsDirect()
         } catch (_: Exception) {
             emptyList()
         }
-        if (localList.isNotEmpty()) {
-            emit(Result.success(localList))
-        }
-
-        // 2. Fetch from Back4App cloud database
-        try {
-            val back4AppRes = back4AppClient.getTopUpRequests()
-            if (back4AppRes.isSuccess) {
-                val b4aList = back4AppRes.getOrNull().orEmpty()
-                for (req in b4aList) {
-                    db.topUpRequestDao().insertRequest(req)
-                }
+        if (localList.isNotEmpty()) emit(Result.success(localList))
+        while (currentCoroutineContext().isActive) {
+            val remote = back4AppClient.getTopUpRequests()
+            if (remote.isSuccess) {
+                val requests = remote.getOrNull().orEmpty()
+                for (request in requests) db.topUpRequestDao().insertRequest(request)
                 emit(Result.success(db.topUpRequestDao().getAllRequestsDirect()))
-            }
-        } catch (e: Exception) {
-            android.util.Log.w("MarketplaceRepository", "Back4App fetch warning: ${e.message}")
-        }
-
-        // 3. Listen to Firestore stream as well
-        try {
-            firestoreService.getAllTopUpRequestsFlow().collect { fsResult ->
-                if (fsResult.isSuccess) {
-                    val firestoreList = fsResult.getOrNull().orEmpty()
-                    for (item in firestoreList) {
-                        db.topUpRequestDao().insertRequest(item.toTopUpRequestEntity())
-                    }
+            } else {
+                val cached = db.topUpRequestDao().getAllRequestsDirect()
+                if (cached.isEmpty()) {
+                    emit(Result.failure(remote.exceptionOrNull() ?: Exception("تعذر تحميل طلبات الشحن من Back4App.")))
+                } else {
+                    emit(Result.failure(remote.exceptionOrNull() ?: Exception("تعذر تحديث طلبات الشحن؛ المعروض هو آخر تخزين محلي.")))
                 }
-                val combined = db.topUpRequestDao().getAllRequestsDirect()
-                emit(Result.success(combined))
             }
-        } catch (e: Exception) {
-            val fallback = db.topUpRequestDao().getAllRequestsDirect()
-            emit(Result.success(fallback))
+            delay(20_000L)
         }
-    }
+    }.flowOn(Dispatchers.IO)
 
     suspend fun submitTopUpRequest(
         context: Context,
@@ -252,81 +231,22 @@ class MarketplaceRepository(
         return Result.failure(Exception("تقديم طلبات الشحن متاح حصرياً عبر تطبيق العميل."))
     }
 
-    /**
-     * Approves top-up request: updates Back4App, Firestore, and Room cache.
-     * Also credits the user's wallet in Back4App and Room!
-     */
     suspend fun approveTopUpRequest(requestId: String, adminNote: String = "تم التحقق من الوصل بنجاح"): Result<String> {
         val note = adminNote.ifBlank { "تم التحقق من الوصل بنجاح" }
         val now = System.currentTimeMillis()
-
-        // 1. Update Back4App
-        try {
-            back4AppClient.updateTopUpStatus(requestId, "APPROVED", note)
-        } catch (e: Exception) {
-            android.util.Log.w("MarketplaceRepository", "Back4App approve warning: ${e.message}")
-        }
-
-        // 2. Update Firestore
-        try {
-            firestoreService.updateTopUpStatus(requestId, "APPROVED", note)
-        } catch (e: Exception) {
-            android.util.Log.w("MarketplaceRepository", "Firestore approve warning: ${e.message}")
-        }
-
-        // 3. Update local Room cache
-        try {
-            db.topUpRequestDao().updateStatus(requestId, "APPROVED", note, now)
-        } catch (e: Exception) {
-            android.util.Log.w("MarketplaceRepository", "Local cache update warning: ${e.message}")
-        }
-
-        // 4. Credit user wallet in Back4App and local Room
-        try {
-            val req = db.topUpRequestDao().getRequestById(requestId)
-            if (req != null && req.amountDzd > 0) {
-                val uid = req.userId
-                val currentWallet = back4AppClient.getWallet(uid).getOrNull()
-                val newBal = (currentWallet?.balanceDzd ?: 0) + req.amountDzd
-                back4AppClient.saveWallet(WalletEntity(userId = uid, balanceDzd = newBal, updatedAt = now))
-                db.walletDao().insertOrUpdateWallet(WalletEntity(userId = uid, balanceDzd = newBal, updatedAt = now))
-            }
-        } catch (e: Exception) {
-            android.util.Log.w("MarketplaceRepository", "Wallet credit warning: ${e.message}")
-        }
-
-        return Result.success("تمت الموافقة على طلب الشحن وتحديث الحالة بنجاح ✓")
+        val result = back4AppClient.updateTopUpStatus(requestId, "APPROVED", note)
+        if (result.isFailure) return Result.failure(result.exceptionOrNull() ?: Exception("فشلت الموافقة على طلب الشحن."))
+        runCatching { db.topUpRequestDao().updateStatus(requestId, "APPROVED", note, now) }
+        return Result.success("تم اعتماد الطلب وشحن المحفظة من الخادم بنجاح.")
     }
 
-    /**
-     * Rejects top-up request: updates Back4App, Firestore, and Room cache.
-     */
     suspend fun rejectTopUpRequest(requestId: String, reason: String): Result<String> {
         val note = reason.ifBlank { "الوصل غير مطابق أو غير واضح" }
         val now = System.currentTimeMillis()
-
-        // 1. Update Back4App
-        try {
-            back4AppClient.updateTopUpStatus(requestId, "REJECTED", note)
-        } catch (e: Exception) {
-            android.util.Log.w("MarketplaceRepository", "Back4App reject warning: ${e.message}")
-        }
-
-        // 2. Update Firestore
-        try {
-            firestoreService.updateTopUpStatus(requestId, "REJECTED", note)
-        } catch (e: Exception) {
-            android.util.Log.w("MarketplaceRepository", "Firestore reject warning: ${e.message}")
-        }
-
-        // 3. Update local Room cache
-        try {
-            db.topUpRequestDao().updateStatus(requestId, "REJECTED", note, now)
-        } catch (e: Exception) {
-            android.util.Log.w("MarketplaceRepository", "Local cache update warning: ${e.message}")
-        }
-
-        return Result.success("تم رفض طلب الشحن وتحديث الحالة بنجاح.")
+        val result = back4AppClient.updateTopUpStatus(requestId, "REJECTED", note)
+        if (result.isFailure) return Result.failure(result.exceptionOrNull() ?: Exception("فشل رفض طلب الشحن."))
+        runCatching { db.topUpRequestDao().updateStatus(requestId, "REJECTED", note, now) }
+        return Result.success("تم رفض طلب الشحن وإرسال الحالة للمستخدم.")
     }
 
     suspend fun topUpWallet(userId: String, amount: Int, paymentProvider: String, txReference: String? = null): Result<String> {
@@ -607,4 +527,3 @@ class MarketplaceRepository(
         }
     }
 }
-

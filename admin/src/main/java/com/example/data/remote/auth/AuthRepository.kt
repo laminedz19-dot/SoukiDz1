@@ -2,11 +2,16 @@ package com.example.data.remote.auth
 
 import android.util.Log
 import com.parse.ParseAnonymousUtils
+import com.parse.LogInCallback
+import com.parse.ParseException
 import com.parse.ParseRole
 import com.parse.ParseUser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 data class AuthUser(
     val uid: String,
@@ -30,10 +35,11 @@ class AuthRepository {
     )
 
     val currentUser: AuthUser?
-        get() = ParseUser.getCurrentUser()?.takeIf { it.objectId != null }?.toAuthUser()
+        get() = runCatching { ParseUser.getCurrentUser() }
+            .getOrNull()?.takeIf { it.objectId != null }?.toAuthUser()
 
     val currentUserId: String?
-        get() = ParseUser.getCurrentUser()?.objectId
+        get() = runCatching { ParseUser.getCurrentUser()?.objectId }.getOrNull()
 
     suspend fun registerWithEmail(email: String, password: String): Result<AuthUser?> = withContext(Dispatchers.IO) {
         try {
@@ -60,7 +66,20 @@ class AuthRepository {
 
     suspend fun signInAnonymously(): Result<AuthUser?> = withContext(Dispatchers.IO) {
         try {
-            val user = withTimeout(4_000L) { ParseAnonymousUtils.logIn() }
+            val user = withTimeout(4_000L) {
+                suspendCancellableCoroutine { continuation ->
+                    ParseAnonymousUtils.logIn(object : LogInCallback {
+                        override fun done(user: ParseUser?, error: ParseException?) {
+                            if (!continuation.isActive) return
+                            when {
+                                error != null -> continuation.resumeWithException(error)
+                                user != null -> continuation.resume(user)
+                                else -> continuation.resumeWithException(IllegalStateException("لم تُرجع خدمة الحساب مستخدماً."))
+                            }
+                        }
+                    })
+                }
+            }
             Result.success(user.toAuthUser())
         } catch (e: Exception) {
             Result.failure(Exception(toArabicMessage(e), e))
@@ -84,7 +103,7 @@ class AuthRepository {
     }
 
     suspend fun checkIsCurrentAdmin(): Boolean = withContext(Dispatchers.IO) {
-        val user = ParseUser.getCurrentUser() ?: return@withContext false
+        val user = runCatching { ParseUser.getCurrentUser() }.getOrNull() ?: return@withContext false
         try {
             isAdminMember(user)
         } catch (e: Exception) {
@@ -97,7 +116,7 @@ class AuthRepository {
         val roleQuery = ParseRole.getQuery()
         roleQuery.whereEqualTo("name", ADMIN_ROLE)
         val role = roleQuery.getFirst()
-        val members = role.getRelation("users").query
+        val members = role.getRelation<ParseUser>("users").query
         members.whereEqualTo("objectId", user.objectId)
         return members.count() > 0
     }

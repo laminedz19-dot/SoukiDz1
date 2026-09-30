@@ -65,24 +65,25 @@
 
 - `_User`: `isVerified`, `verificationRequested`, `isBanned`, `profileRole`.
 - `Listing`: `status`, `isPaid`, `isFeatured`, `isUrgent`, `rejectionReason`.
-- `TopUpRequest`: `status`, `adminNote`, `reviewedAt`, `amountDzd`, `user` بعد الإنشاء.
+- `TopUpRequest`: جميع بيانات الطلب بعد الإنشاء: `requestId`, `user`, `userId`, `userName`, `userPhone`, `amountDzd`, `provider`, `reference`, `receiptImageUri`, `createdAtMs`, `status`, `adminNote`, `reviewedBy`, `reviewedAt`, `reviewedAtMs`.
 - `Wallet`: `balanceDzd`, `pendingBalanceDzd`, `isActive`.
 - `Order`: `status`, `isPaid`, `trackingNumber`, `statusNote`, `deliveredAt`, `cancelledAt`.
 
 ## إعدادات لوحة Back4App المطلوبة
 
-1. إنشاء/مراجعة CLP لكل جدول بحسب المصفوفة أعلاه، مع إغلاق Public Find/Get/Create/Update/Delete افتراضياً.
+1. إنشاء/مراجعة CLP لكل جدول بحسب المصفوفة أعلاه، مع إغلاق Public Find/Get/Create/Update/Delete افتراضياً. اسمح بالاستعلام للمستخدم المصادق عليه حيث يلزم، واترك ACL السجل يقصر النتائج على المالك؛ لا تفتح القراءة العامة لـ`TopUpRequest` أو`Wallet`.
 2. إنشاء Role باسم `Admin` مع ACL مغلق للعامة.
 3. إضافة أول حساب إداري إلى Role `Admin` يدوياً.
 4. نشر `cloud/main.js` في Cloud Code.
-5. تفعيل Live Query لاحقاً لجدول `ChatMessage` فقط.
+5. تفعيل Live Query لاحقاً لجدول `ChatMessage` فقط؛ تحديثات طلبات الشحن تُجلب بالاستعلام الدوري من العميل.
 6. ضبط Push/Installations بعد إكمال المرحلة السابعة.
 7. عدم منح Client Key صلاحيات Master؛ Master Key لا يوضع في التطبيق أو Git.
-8. مراجعة صلاحيات الملفات، خصوصاً `receiptFile`، قبل نقلها إلى ParseFile.
+8. طلبات الشحن الجديدة تخزن صورة الوصل المضغوطة داخل سجل `TopUpRequest` المحمي بـACL بدلاً من ParseFile العام.
+9. روابط ParseFile العامة في الطلبات القديمة لا تصبح خاصة بمجرد حماية سجل الطلب؛ راجعها واحذفها أو استبدلها قبل اعتبار الوصولات القديمة محمية.
 
-## حدود التنفيذ في هذه المرحلة
+## حدود التنفيذ والتشغيل
 
-- لم يتم بعد استبدال مستودعات Firebase في Kotlin؛ ذلك يبدأ في مراحل SDK والمصادقة وطبقة البيانات.
-- Cloud Code يعتمد على مخطط المرحلة الأولى، لذلك يجب نشر الجداول والحقول أو تفعيل إنشاء الجداول عند أول حفظ قبل اختبار الدوال.
+- تدفق الشحن والمصادقة الإدارية يستعملان Back4App، لكن بقية بعض المستودعات/الميزات ما زالت تحتوي مسارات Firebase قديمة.
+- أنشئ الجداول اللازمة قبل تعطيل إنشاء الجداول من العملاء، ثم انشر Cloud Code واضبط Role/CLP/ACL يدوياً.
 - `Parse.Push.send` يتطلب أن تكون `ParseInstallation` مرتبطة بحساب `_User` في مرحلة الإشعارات.
-- صلاحيات لوحة Back4App والنشر الفعلي لـCloud Code خطوات خارجية لا يمكن تنفيذها من مستودع GitHub وحده دون بيانات دخول Back4App.
+- صلاحيات لوحة Back4App والنشر الفعلي لـCloud Code خطوات خارجية لا يمكن تنفيذها من مستودع GitHub وحده دون بيانات دخول Back4App. راجع `docs/BACK4APP_TOPUP_SETUP_AR.md`.

@@ -29,6 +29,7 @@ import com.example.data.remote.back4app.Back4AppClient
 import androidx.room.withTransaction
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -196,51 +197,47 @@ class MarketplaceRepository(
         db.topUpRequestDao().getUserRequests(userId)
 
     /**
-     * Listens directly to Firestore topUpRequests for the current user in real-time.
-     * Caches received items into Room so offline mode remains functional.
-     * Emits Result.failure if Firestore listener fails, preserving accurate error states.
+     * Polls Back4App for the signed-in user's requests and caches the result in Room.
+     * Parse Live Query is intentionally not required for top-up status updates.
      */
-    fun getUserTopUpRequestsFromFirestore(userId: String): Flow<Result<List<TopUpRequestEntity>>> {
-        return firestoreService.getUserTopUpRequestsFlow(userId).map { result ->
-            if (result.isSuccess) {
-                val firestoreList = result.getOrNull().orEmpty()
-                val entities = firestoreList.map { it.toTopUpRequestEntity() }
-                try {
-                    for (entity in entities) {
-                        val localExisting = db.topUpRequestDao().getRequestById(entity.id)
-                        val wasNotApproved = localExisting == null || localExisting.status != "APPROVED"
-                        if (entity.status == "APPROVED" && wasNotApproved) {
-                            // Idempotent credit in local Room wallet for the approved top-up request
-                            val wallet = db.walletDao().getWalletDirect(userId)
-                            if (wallet == null) {
-                                db.walletDao().insertOrUpdateWallet(
-                                    WalletEntity(userId = userId, balanceDzd = 0, updatedAt = System.currentTimeMillis())
-                                )
-                            }
-                            db.walletDao().creditWallet(userId, entity.amountDzd, System.currentTimeMillis())
-                            db.walletDao().insertTransaction(
-                                WalletTransactionEntity(
-                                    id = "topup_${entity.id}",
-                                    userId = userId,
-                                    type = "TOPUP",
-                                    amount = entity.amountDzd,
-                                    description = "شحن رصيد معتمد (${entity.provider})",
-                                    referenceId = entity.id,
-                                    timestamp = if (entity.reviewedAt > 0) entity.reviewedAt else System.currentTimeMillis()
-                                )
-                            )
-                        }
-                        db.topUpRequestDao().insertRequest(entity)
-                    }
-                } catch (e: Exception) {
-                    android.util.Log.w("MarketplaceRepository", "Failed to cache user top-up requests in Room: ${e.message}")
-                }
-                Result.success(entities)
-            } else {
-                Result.failure(result.exceptionOrNull() ?: Exception("خطأ غير معروف أثناء مزامنة طلبات الشحن"))
+    fun getUserTopUpRequestsFromBack4App(userId: String): Flow<Result<List<TopUpRequestEntity>>> =
+        kotlinx.coroutines.flow.flow {
+            if (userId.isBlank() || userId == "user_me") {
+                emit(Result.success(emptyList()))
+                return@flow
             }
-        }
-    }
+            while (true) {
+                val result = back4AppClient.getUserTopUpRequests(userId)
+                if (result.isSuccess) {
+                    val requests = result.getOrNull().orEmpty()
+                    for (request in requests) db.topUpRequestDao().insertRequest(request)
+                    emit(Result.success(requests))
+                } else {
+                    emit(Result.failure(result.exceptionOrNull() ?: Exception("تعذر مزامنة طلبات الشحن من Back4App.")))
+                }
+                kotlinx.coroutines.delay(20_000L)
+            }
+        }.flowOn(Dispatchers.IO)
+
+    /** Keeps the customer's local display cache aligned with the server-owned wallet. */
+    fun getWalletFromBack4App(userId: String): Flow<Result<WalletEntity?>> =
+        kotlinx.coroutines.flow.flow {
+            if (userId.isBlank() || userId == "user_me") {
+                emit(Result.success(null))
+                return@flow
+            }
+            while (true) {
+                val result = back4AppClient.getWallet(userId)
+                if (result.isSuccess) {
+                    val wallet = result.getOrNull()
+                    if (wallet != null) db.walletDao().insertOrUpdateWallet(wallet)
+                    emit(Result.success(wallet))
+                } else {
+                    emit(Result.failure(result.exceptionOrNull() ?: Exception("تعذر مزامنة المحفظة من Back4App.")))
+                }
+                kotlinx.coroutines.delay(20_000L)
+            }
+        }.flowOn(Dispatchers.IO)
 
     fun getAllTopUpRequests(): Flow<List<TopUpRequestEntity>> =
         db.topUpRequestDao().getAllRequests()
@@ -282,7 +279,7 @@ class MarketplaceRepository(
             return@withContext Result.failure(IllegalArgumentException("يجب إرفاق صورة وصل التحويل أو إدخال رقم مرجع العملية على الأقل."))
         }
 
-        // 4. Resolve authenticated user or anonymous user
+        // 4. Resolve the authenticated Parse user (anonymous Parse sessions are also server identities).
         var currentFirebaseUser = authService.currentUser
         if (currentFirebaseUser == null) {
             try {
@@ -308,58 +305,13 @@ class MarketplaceRepository(
         // 5. Generate requestId before uploading image
         val requestId = "req_" + UUID.randomUUID().toString().replace("-", "").take(16)
 
-        // 6. Handle receipt image upload: Prioritize Back4App -> Firebase Storage -> Base64
+        // 6. Keep the receipt inside the ACL-protected request record. Parse file URLs are public.
         var storedReceiptPath = ""
         if (hasReceipt) {
-            val localUri = Uri.parse(receiptImageUriString)
-
-            // A. Back4App File Upload (Direct public CDN URL, no bucket rules or auth required)
-            try {
-                val back4AppRes = withTimeoutOrNull(20000L) {
-                    back4AppClient.uploadReceiptImage(context, localUri, "receipt_${requestId.take(10)}")
-                }
-                if (back4AppRes?.isSuccess == true) {
-                    storedReceiptPath = back4AppRes.getOrNull().orEmpty()
-                    android.util.Log.i("MarketplaceRepository", "Receipt uploaded to Back4App successfully: $storedReceiptPath")
-                } else {
-                    val err = back4AppRes?.exceptionOrNull()?.message
-                    android.util.Log.w("MarketplaceRepository", "Back4App receipt upload returned: $err")
-                }
-            } catch (t: Throwable) {
-                android.util.Log.w("MarketplaceRepository", "Back4App receipt upload exception: ${t.message}")
-            }
-
-            // B. Firebase Storage fallback
+            storedReceiptPath = compressImageToBase64DataUri(context, Uri.parse(receiptImageUriString)).orEmpty()
             if (storedReceiptPath.isBlank()) {
-                try {
-                    val uploadResult = withTimeoutOrNull(20000L) {
-                        storageService.uploadTopUpReceipt(
-                            context = context,
-                            userId = uid,
-                            requestId = requestId,
-                            imageUri = localUri
-                        )
-                    }
-                    if (uploadResult?.isSuccess == true) {
-                        storedReceiptPath = uploadResult.getOrNull().orEmpty()
-                    }
-                } catch (t: Throwable) {
-                    android.util.Log.w("MarketplaceRepository", "Storage upload exception: ${t.message}")
-                }
-            }
-
-            // C. Base64 fallback (guarantees image is never lost even if all cloud storage APIs fail)
-            if (storedReceiptPath.isBlank()) {
-                val base64Uri = compressImageToBase64DataUri(context, localUri)
-                if (!base64Uri.isNullOrBlank()) {
-                    storedReceiptPath = base64Uri
-                    android.util.Log.i("MarketplaceRepository", "Receipt image fallback to Base64 data URI successful (size: ${base64Uri.length} chars)")
-                }
-            }
-
-            if (storedReceiptPath.isBlank() && !hasReference) {
                 return@withContext Result.failure(
-                    IllegalStateException("تعذر رفع أو معالجة صورة الوصل. يُرجى التأكد من اختيار صورة صحيحة أو إدخال رقم مرجع العملية.")
+                    IllegalStateException("تعذر معالجة صورة الوصل. أعد اختيار صورة بصيغة مدعومة ثم أعد الإرسال.")
                 )
             }
         }
@@ -385,63 +337,27 @@ class MarketplaceRepository(
             amountDzd = amount,
             provider = provider,
             reference = reference.trim(),
-            receiptImageUri = storedReceiptPath.ifBlank { receiptImageUriString },
+            receiptImageUri = storedReceiptPath,
             status = "PENDING",
             adminNote = "",
             createdAt = now,
             reviewedAt = 0L
         )
 
-        // 8. Submit to Back4App cloud database
-        var back4AppSuccess = false
-        try {
-            val b4aResult = withTimeoutOrNull(15000L) {
-                back4AppClient.submitTopUpRequest(cachedEntity)
-            }
-            if (b4aResult?.isSuccess == true) {
-                back4AppSuccess = true
-                android.util.Log.i("MarketplaceRepository", "TopUpRequest successfully recorded in Back4App!")
-            } else {
-                android.util.Log.w("MarketplaceRepository", "Back4App submit error: ${b4aResult?.exceptionOrNull()?.message}")
-            }
+        // 8. Back4App is the only source of truth. Do not report success for a local-only request.
+        val remoteResult = try {
+            withTimeoutOrNull(15_000L) { back4AppClient.submitTopUpRequest(cachedEntity) }
+                ?: return@withContext Result.failure(IllegalStateException("انتهت مهلة إرسال طلب الشحن إلى Back4App."))
         } catch (e: Exception) {
-            android.util.Log.w("MarketplaceRepository", "Back4App submit exception: ${e.message}")
+            return@withContext Result.failure(e)
         }
-
-        // 9. Also record in Firestore as redundant backup if available
-        var firestoreSuccess = false
-        val firestoreReq = FirestoreTopUpRequest(
-            id = requestId,
-            userId = uid,
-            userName = userName,
-            userPhone = userPhone,
-            amountDzd = amount,
-            provider = provider,
-            reference = reference.trim(),
-            receiptImageUri = storedReceiptPath,
-            status = "PENDING",
-            adminNote = "",
-            createdAt = null,
-            reviewedAt = null
-        )
-        try {
-            val fsResult = withTimeoutOrNull(10000L) {
-                firestoreService.submitTopUpRequest(firestoreReq)
-            }
-            if (fsResult?.isSuccess == true) {
-                firestoreSuccess = true
-                android.util.Log.i("MarketplaceRepository", "TopUpRequest successfully recorded in Firestore!")
-            }
-        } catch (_: Exception) {}
-
-        // Verify at least one cloud target or local storage succeeded
-        if (!back4AppSuccess && !firestoreSuccess && storedReceiptPath.isBlank() && reference.isBlank()) {
+        if (remoteResult.isFailure) {
             return@withContext Result.failure(
-                IllegalStateException("تعذر تسجيل طلب الشحن في الخوادم السحابية. يرجى التحقق من اتصال الإنترنت.")
+                remoteResult.exceptionOrNull() ?: IllegalStateException("تعذر تسجيل طلب الشحن في Back4App.")
             )
         }
 
-        // 10. Save locally in Room
+        // 9. Cache only after the cloud has accepted the request.
         try {
             db.topUpRequestDao().insertRequest(cachedEntity)
             if (userId.isNotBlank() && userId != uid) {
@@ -455,9 +371,7 @@ class MarketplaceRepository(
     }
 
     /**
-     * Compresses a local image Uri into a compact JPEG Base64 data URI (data:image/jpeg;base64,...).
-     * Keeps the file size small (<150KB) so it safely fits within Firestore's 1MB document limit
-     * without needing Firebase Cloud Storage or a Blaze billing plan.
+     * Compresses a receipt into a bounded data URI stored inside its ACL-protected Parse object.
      */
     private fun compressImageToBase64DataUri(context: Context, uri: Uri): String? {
         return try {
@@ -487,11 +401,29 @@ class MarketplaceRepository(
                 originalBitmap
             }
 
-            val outputStream = ByteArrayOutputStream()
-            scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 70, outputStream)
-            val byteArray = outputStream.toByteArray()
-            val base64 = Base64.encodeToString(byteArray, Base64.NO_WRAP)
-            "data:image/jpeg;base64,$base64"
+            var bitmap = scaledBitmap
+            var quality = 70
+            repeat(6) {
+                val outputStream = ByteArrayOutputStream()
+                bitmap.compress(Bitmap.CompressFormat.JPEG, quality, outputStream)
+                val base64 = Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP)
+                if (base64.length <= 280_000) {
+                    if (bitmap !== originalBitmap) bitmap.recycle()
+                    if (scaledBitmap !== originalBitmap && scaledBitmap !== bitmap) scaledBitmap.recycle()
+                    originalBitmap.recycle()
+                    return "data:image/jpeg;base64,$base64"
+                }
+                quality = (quality - 8).coerceAtLeast(32)
+                if (it < 5) {
+                    val smaller = Bitmap.createScaledBitmap(bitmap, (bitmap.width * 0.85f).toInt().coerceAtLeast(1), (bitmap.height * 0.85f).toInt().coerceAtLeast(1), true)
+                    if (bitmap !== originalBitmap) bitmap.recycle()
+                    bitmap = smaller
+                }
+            }
+            if (bitmap !== originalBitmap) bitmap.recycle()
+            if (scaledBitmap !== originalBitmap && scaledBitmap !== bitmap) scaledBitmap.recycle()
+            originalBitmap.recycle()
+            null
         } catch (e: Exception) {
             android.util.Log.e("MarketplaceRepository", "Error compressing receipt image: ${e.message}", e)
             null
@@ -827,4 +759,3 @@ class MarketplaceRepository(
         }
     }
 }
-
