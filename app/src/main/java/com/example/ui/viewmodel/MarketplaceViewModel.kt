@@ -43,6 +43,10 @@ import java.util.UUID
 @OptIn(ExperimentalCoroutinesApi::class)
 class MarketplaceViewModel(application: Application) : AndroidViewModel(application) {
 
+    // Declare state before init blocks: coroutines launched from init may start immediately.
+    private val _currentUserId = MutableStateFlow("user_me")
+    val currentUserId = _currentUserId.asStateFlow()
+
     private val db = AppDatabase.getDatabase(application)
     val repository = MarketplaceRepository(db)
 
@@ -106,8 +110,6 @@ class MarketplaceViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     // Current User & Session
-    private val _currentUserId = MutableStateFlow("user_me")
-    val currentUserId = _currentUserId.asStateFlow()
 
     // Admin state remains disabled until a server-backed identity provider is configured.
     data class AdminAuditLog(

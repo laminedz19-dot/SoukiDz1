@@ -101,6 +101,7 @@ fun SouqiApp(viewModel: MarketplaceViewModel) {
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(Unit) {
+        // Splash is visual only; backend availability must never block startup.
         delay(1_200L)
         showSplash = false
     }
