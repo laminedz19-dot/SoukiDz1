@@ -1,11 +1,16 @@
-import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
+import java.util.Properties
+val localProperties = Properties().apply {
+  val propertiesFile = rootProject.file("local.properties")
+  if (propertiesFile.exists()) propertiesFile.inputStream().use { load(it) }
+}
+fun localValue(name: String, fallback: String = ""): String =
+  localProperties.getProperty(name, fallback).replace("\\", "\\\\").replace("\"", "\\\"")
+
 
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.kotlin.compose)
   alias(libs.plugins.google.devtools.ksp)
-  alias(libs.plugins.secrets)
-  alias(libs.plugins.google.services)
 }
 
 android {
@@ -20,6 +25,9 @@ android {
     versionName = "1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    buildConfigField("String", "BACK4APP_SERVER_URL", "\"${localValue("BACK4APP_SERVER_URL", "https://parseapi.back4app.com/")}\"")
+    buildConfigField("String", "BACK4APP_APPLICATION_ID", "\"${localValue("BACK4APP_APPLICATION_ID")}\"")
+    buildConfigField("String", "BACK4APP_CLIENT_KEY", "\"${localValue("BACK4APP_CLIENT_KEY")}\"")
   }
 
   signingConfigs {
@@ -62,18 +70,6 @@ android {
   }
 }
 
-// Configure the Secrets Gradle Plugin to use .env and .env.example files
-// to match the convention used in Web projects.
-secrets {
-  propertiesFileName = ".env"
-  defaultPropertiesFileName = ".env.example"
-  ignoreList.add("FIREBASE_APPCHECK_DEBUG_TOKEN")
-}
-
-googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.WARN }
-
-// Some unused dependencies are commented out below instead of being removed.
-// This makes it easy to add them back in the future if needed.
 dependencies {
   implementation(platform(libs.androidx.compose.bom))
   implementation(platform(libs.firebase.bom))

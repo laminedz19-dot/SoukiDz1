@@ -1,6 +1,4 @@
 <resources>
     <string name="app_name">سوقي DZ</string>
-    <string name="back4app_server_url">https://parseapi.back4app.com/</string>
     <string name="back4app_app_id">9kOULvBeP36yMDgbMT6dGhpw4iG4RZnexnjwyHG2</string>
-    <string name="back4app_client_key">nIy3zdS6aYrVq3sZT4HcncQJJbh53q1agAcSokS2</string>
 </resources>

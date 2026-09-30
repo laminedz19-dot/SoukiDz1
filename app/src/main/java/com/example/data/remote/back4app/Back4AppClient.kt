@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Log
+import com.example.BuildConfig
 import com.example.data.local.ChatMessageEntity
 import com.example.data.local.ListingEntity
 import com.example.data.local.OrderEntity
