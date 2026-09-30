@@ -383,6 +383,7 @@ class MarketplaceViewModel(application: Application) : AndroidViewModel(applicat
         onlyNegotiable,
         sortBy
     ) { params ->
+        @Suppress("UNCHECKED_CAST")
         val list = params[0] as List<ListingEntity>
         val query = params[1] as String
         val cat = params[2] as String?

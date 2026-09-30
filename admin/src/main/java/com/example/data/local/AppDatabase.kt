@@ -51,7 +51,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "souqi_dz.db"
                 )
-                    .fallbackToDestructiveMigration()
+                    .fallbackToDestructiveMigration(dropAllTables = true)
                     .addCallback(DatabaseCallback())
                     .build()
                 INSTANCE = instance
