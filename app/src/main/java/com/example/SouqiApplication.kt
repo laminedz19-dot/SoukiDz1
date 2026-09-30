@@ -13,11 +13,17 @@ class SouqiApplication : Application() {
             defaultHandler?.uncaughtException(thread, throwable)
         }
         try {
+            val applicationId = BuildConfig.BACK4APP_APPLICATION_ID.trim()
+            val serverUrl = BuildConfig.BACK4APP_SERVER_URL.trim()
+            if (applicationId.isBlank() || serverUrl.isBlank()) {
+                Log.w("SouqiApplication", "Back4App is not configured; cloud features will remain unavailable")
+                return
+            }
             Parse.initialize(
                 Parse.Configuration.Builder(this)
-                    .applicationId(getString(R.string.back4app_app_id))
-                    .clientKey(getString(R.string.back4app_client_key))
-                    .server(getString(R.string.back4app_server_url))
+                    .applicationId(applicationId)
+                    .clientKey(BuildConfig.BACK4APP_CLIENT_KEY.trim())
+                    .server(serverUrl)
                     .build()
             )
             Log.i("SouqiApplication", "Back4App Parse initialized")

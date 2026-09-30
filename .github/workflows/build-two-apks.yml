@@ -39,6 +39,10 @@ jobs:
           fi
 
       - name: Build both debug APKs
+        env:
+          BACK4APP_SERVER_URL: ${{ secrets.BACK4APP_SERVER_URL }}
+          BACK4APP_APP_ID: ${{ secrets.BACK4APP_APP_ID }}
+          BACK4APP_CLIENT_KEY: ${{ secrets.BACK4APP_CLIENT_KEY }}
         run: gradle :app:assembleDebug :admin:assembleDebug --no-daemon
 
       - name: Prepare Clean APKs

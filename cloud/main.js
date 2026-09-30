@@ -7,7 +7,7 @@
 const ADMIN_ROLE_NAME = "Admin";
 const SENSITIVE_USER_FIELDS = ["isVerified", "verificationRequested", "isBanned", "profileRole"];
 const SENSITIVE_LISTING_FIELDS = ["status", "isPaid", "isFeatured", "isUrgent", "rejectionReason"];
-const SENSITIVE_TOPUP_FIELDS = ["status", "adminNote", "reviewedAt", "amountDzd", "user"];
+const SENSITIVE_TOPUP_FIELDS = ["requestId", "user", "userId", "userName", "userPhone", "amountDzd", "provider", "reference", "receiptImageUri", "createdAtMs", "status", "adminNote", "reviewedBy", "reviewedAt", "reviewedAtMs"];
 const SENSITIVE_WALLET_FIELDS = ["balanceDzd", "pendingBalanceDzd", "isActive"];
 const SENSITIVE_ORDER_FIELDS = ["status", "isPaid", "trackingNumber", "statusNote", "deliveredAt", "cancelledAt"];
 
@@ -65,6 +65,15 @@ async function getUserById(userId) {
   return user;
 }
 
+async function getTopUpRequestByRequestId(requestId) {
+  if (!requestId) throw new Error("معرف طلب الشحن مطلوب");
+  const query = new Parse.Query("TopUpRequest");
+  query.equalTo("requestId", requestId);
+  const request = await query.first({useMasterKey: true});
+  if (request) return request;
+  return await new Parse.Query("TopUpRequest").get(requestId, {useMasterKey: true});
+}
+
 async function getAdminRole() {
   const query = new Parse.Query(Parse.Role);
   query.equalTo("name", ADMIN_ROLE_NAME);
@@ -79,8 +88,8 @@ async function getAdminRole() {
 }
 
 async function applyDefaultAcl(request, options) {
-  if (request.master || !request.object.isNew()) return;
-  const owner = request.user;
+  if (!request.object.isNew()) return;
+  const owner = request.object.get("user") || request.object.get("owner") || request.object.get("recipient") || request.user;
   const acl = new Parse.ACL();
   setAcl(acl, owner, options);
   request.object.setACL(acl);
@@ -112,18 +121,39 @@ Parse.Cloud.beforeSave("Listing", async (request) => {
 });
 
 Parse.Cloud.beforeSave("TopUpRequest", async (request) => {
-  await assertSensitiveChangeAllowed(request, SENSITIVE_TOPUP_FIELDS);
   if (request.object.isNew() && !request.master) {
     const user = requireUser(request);
     const linkedUser = request.object.get("user");
     if (!linkedUser || linkedUser.id !== user.id) {
       throw new Error("طلب الشحن يجب أن يخص المستخدم الحالي");
     }
-    if (request.object.get("status") !== "PENDING") {
-      throw new Error("طلب الشحن الجديد يجب أن يكون في حالة انتظار");
-    }
+    const amount = Number(request.object.get("amountDzd"));
+    const provider = String(request.object.get("provider") || "");
+    const reference = String(request.object.get("reference") || "").trim();
+    const receipt = String(request.object.get("receiptImageUri") || "").trim();
+    const requestId = String(request.object.get("requestId") || "").trim();
+    if (!Number.isInteger(amount) || amount < 200) throw new Error("قيمة الشحن يجب أن تكون 200 دج على الأقل");
+    if (!["BARIDIMOB", "CCP", "EDAHABIA", "CIB"].includes(provider)) throw new Error("وسيلة التحويل غير مدعومة");
+    if (!requestId || requestId.length > 80) throw new Error("معرّف طلب الشحن غير صالح");
+    if (!reference && !receipt) throw new Error("أرفق صورة الوصل أو أدخل رقم المرجع");
+    if (receipt.length > 300000) throw new Error("حجم صورة الوصل أكبر من الحد المسموح");
+    if (receipt && !receipt.startsWith("data:image/jpeg;base64,")) throw new Error("صيغة صورة الوصل غير مدعومة");
+    const duplicateQuery = new Parse.Query("TopUpRequest");
+    duplicateQuery.equalTo("requestId", requestId);
+    if (await duplicateQuery.first({useMasterKey: true})) throw new Error("معرّف طلب الشحن مستخدم مسبقاً");
+    request.object.set("userId", user.id);
+    request.object.set("userName", String(user.get("name") || user.get("username") || "مستخدم سوقي"));
+    request.object.set("userPhone", String(user.get("phone") || ""));
+    request.object.set("createdAtMs", Date.now());
+    request.object.set("status", "PENDING");
+    request.object.set("adminNote", "");
+    request.object.unset("reviewedBy");
+    request.object.unset("reviewedAt");
+    request.object.set("reviewedAtMs", 0);
     await applyDefaultAcl(request, {ownerRead: true, ownerWrite: false});
+    return;
   }
+  await assertSensitiveChangeAllowed(request, SENSITIVE_TOPUP_FIELDS);
 });
 
 Parse.Cloud.beforeSave("Wallet", async (request) => {
@@ -205,8 +235,7 @@ Parse.Cloud.define("approveTopUpRequest", async (request) => {
   await requireAdmin(request);
   const requestId = request.params.requestId;
   const note = String(request.params.adminNote || "");
-  const topUpQuery = new Parse.Query("TopUpRequest");
-  const topUp = await topUpQuery.get(requestId, {useMasterKey: true});
+  const topUp = await getTopUpRequestByRequestId(requestId);
   if (topUp.get("status") !== "PENDING") throw new Error("طلب الشحن تمت معالجته مسبقاً");
   const user = topUp.get("user");
   if (!user) throw new Error("طلب الشحن لا يحتوي على مستخدم صالح");
@@ -214,18 +243,43 @@ Parse.Cloud.define("approveTopUpRequest", async (request) => {
   const amount = Number(topUp.get("amountDzd") || 0);
   if (!Number.isFinite(amount) || amount < 200) throw new Error("قيمة الشحن غير صالحة");
 
+  const priorTransactionQuery = new Parse.Query("WalletTransaction");
+  priorTransactionQuery.equalTo("referenceId", topUp.id);
+  const priorTransaction = await priorTransactionQuery.first({useMasterKey: true});
+  if (priorTransaction) {
+    topUp.set("status", "APPROVED");
+    topUp.set("adminNote", note);
+    topUp.set("reviewedBy", request.user);
+    topUp.set("reviewedAt", new Date());
+    topUp.set("reviewedAtMs", Date.now());
+    await topUp.save(null, {useMasterKey: true});
+    return {success: true, requestId: topUp.id, duplicate: true};
+  }
+
   const walletQuery = new Parse.Query("Wallet");
   walletQuery.equalTo("user", user);
   let wallet = await walletQuery.first({useMasterKey: true});
   if (!wallet) {
+    const legacyWalletQuery = new Parse.Query("Wallet");
+    legacyWalletQuery.equalTo("userId", user.id);
+    wallet = await legacyWalletQuery.first({useMasterKey: true});
+  }
+  if (!wallet) {
     wallet = new Parse.Object("Wallet");
-    wallet.set("user", user);
     wallet.set("balanceDzd", 0);
     wallet.set("pendingBalanceDzd", 0);
     wallet.set("currency", "DZD");
     wallet.set("isActive", true);
   }
+  wallet.set("user", user);
+  wallet.set("userId", user.id);
+  const walletAcl = new Parse.ACL();
+  walletAcl.setReadAccess(user, true);
+  walletAcl.setRoleReadAccess(ADMIN_ROLE_NAME, true);
+  walletAcl.setRoleWriteAccess(ADMIN_ROLE_NAME, true);
+  wallet.setACL(walletAcl);
   wallet.increment("balanceDzd", amount);
+  wallet.set("updatedAtMs", Date.now());
   await wallet.save(null, {useMasterKey: true});
 
   const transaction = new Parse.Object("WalletTransaction");
@@ -241,19 +295,20 @@ Parse.Cloud.define("approveTopUpRequest", async (request) => {
   topUp.set("adminNote", note);
   topUp.set("reviewedBy", request.user);
   topUp.set("reviewedAt", new Date());
+  topUp.set("reviewedAtMs", Date.now());
   await topUp.save(null, {useMasterKey: true});
   return {success: true, requestId: topUp.id, newBalanceDzd: wallet.get("balanceDzd")};
 });
 
 Parse.Cloud.define("rejectTopUpRequest", async (request) => {
   await requireAdmin(request);
-  const topUpQuery = new Parse.Query("TopUpRequest");
-  const topUp = await topUpQuery.get(request.params.requestId, {useMasterKey: true});
+  const topUp = await getTopUpRequestByRequestId(request.params.requestId);
   if (topUp.get("status") !== "PENDING") throw new Error("طلب الشحن تمت معالجته مسبقاً");
   topUp.set("status", "REJECTED");
   topUp.set("adminNote", String(request.params.adminNote || ""));
   topUp.set("reviewedBy", request.user);
   topUp.set("reviewedAt", new Date());
+  topUp.set("reviewedAtMs", Date.now());
   await topUp.save(null, {useMasterKey: true});
   return {success: true, requestId: topUp.id};
 });

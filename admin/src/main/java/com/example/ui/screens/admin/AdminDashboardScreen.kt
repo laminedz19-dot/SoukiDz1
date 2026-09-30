@@ -1,5 +1,7 @@
 package com.example.ui.screens.admin
 
+import android.graphics.BitmapFactory
+import android.util.Base64
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -114,6 +116,13 @@ import com.example.ui.theme.UrgentRed
 import com.example.ui.theme.VerifiedBlue
 import com.example.ui.viewmodel.MarketplaceViewModel
 
+private fun receiptImageModel(value: String): Any {
+    if (!value.startsWith("data:image/")) return value
+    val encoded = value.substringAfter(',', "")
+    val bytes = runCatching { Base64.decode(encoded, Base64.DEFAULT) }.getOrNull() ?: return value
+    return BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: value
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AdminDashboardScreen(
@@ -197,6 +206,7 @@ fun AdminDashboardScreen(
 
     // Receipt Preview Dialog
     if (previewReceiptUrl != null) {
+        val previewModel = remember(previewReceiptUrl) { receiptImageModel(previewReceiptUrl.orEmpty()) }
         Dialog(onDismissRequest = { previewReceiptUrl = null }) {
             Surface(
                 shape = RoundedCornerShape(14.dp),
@@ -223,7 +233,7 @@ fun AdminDashboardScreen(
                     Spacer(modifier = Modifier.height(10.dp))
 
                     AsyncImage(
-                        model = previewReceiptUrl,
+                        model = previewModel,
                         contentDescription = "صورة الوصل",
                         modifier = Modifier
                             .fillMaxWidth()
@@ -679,7 +689,7 @@ fun AdminDashboardScreen(
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
                                                 AsyncImage(
-                                                    model = req.receiptImageUri,
+                                                    model = remember(req.receiptImageUri) { receiptImageModel(req.receiptImageUri) },
                                                     contentDescription = "صورة الوصل",
                                                     modifier = Modifier
                                                         .size(54.dp)

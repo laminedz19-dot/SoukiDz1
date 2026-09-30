@@ -84,25 +84,27 @@
     },
     {
       "className": "TopUpRequest",
-      "source": "Firestore topUpRequests / Room TopUpRequestEntity",
+      "source": "Back4App TopUpRequest / Room TopUpRequestEntity",
       "fields": {
-        "legacyRequestId": "String",
+        "requestId": "String",
         "user": "Pointer<_User>",
-        "legacyUserId": "String",
-        "userNameSnapshot": "String",
-        "userPhoneSnapshot": "String",
+        "userId": "String",
+        "userName": "String",
+        "userPhone": "String",
         "amountDzd": "Number",
         "provider": "String",
         "reference": "String",
-        "receiptFile": "File",
-        "receiptImageUrlLegacy": "String",
+        "receiptImageUri": "String",
+        "createdAtMs": "Number",
         "status": "String",
         "adminNote": "String",
         "reviewedBy": "Pointer<_User>",
-        "reviewedAt": "Date"
+        "reviewedAt": "Date",
+        "reviewedAtMs": "Number"
       },
+      "notes": ["receiptImageUri is a bounded JPEG data URI stored under the TopUpRequest ACL; do not replace it with a public Parse File URL."],
       "builtInFields": ["objectId", "createdAt", "updatedAt"],
-      "indexes": ["legacyRequestId", "user", "status", "createdAt"]
+      "indexes": ["requestId", "user", "status", "createdAt"]
     },
     {
       "className": "Wallet",

@@ -23,6 +23,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import com.parse.ParseUser
 import java.io.ByteArrayOutputStream
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
@@ -35,13 +36,15 @@ class Back4AppClient {
 
     companion object {
         private const val TAG = "Back4AppClient"
-        const val APPLICATION_ID = "9k0ULvBeP36yMDgbMt6dGhpw4iG4RZnexnjwyHG2"
-        const val CLIENT_KEY = "nIy3zdS6aYrVq3sZT4HcncQJJbh53q1agAcSokS2"
-        const val BASE_URL = "https://parseapi.back4app.com/"
-
         val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
         val JPEG_MEDIA_TYPE = "image/jpeg".toMediaType()
     }
+
+    private val applicationId = BuildConfig.BACK4APP_APPLICATION_ID.trim()
+    private val clientKey = BuildConfig.BACK4APP_CLIENT_KEY.trim()
+    private val baseUrl = BuildConfig.BACK4APP_SERVER_URL.trim()
+        .ifBlank { "https://parseapi.back4app.com/" }
+        .let { if (it.endsWith("/")) it else "$it/" }
 
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(25, TimeUnit.SECONDS)
@@ -50,11 +53,16 @@ class Back4AppClient {
         .build()
 
     private fun newRequestBuilder(endpoint: String): Request.Builder {
-        val url = if (endpoint.startsWith("http")) endpoint else "$BASE_URL$endpoint"
-        return Request.Builder()
+        check(applicationId.isNotBlank()) { "لم تتم تهيئة معرف تطبيق Back4App لهذا الإصدار." }
+        val url = if (endpoint.startsWith("http")) endpoint else "$baseUrl$endpoint"
+        val builder = Request.Builder()
             .url(url)
-            .addHeader("X-Parse-Application-Id", APPLICATION_ID)
-            .addHeader("X-Parse-Client-Key", CLIENT_KEY)
+            .addHeader("X-Parse-Application-Id", applicationId)
+        if (clientKey.isNotBlank()) builder.addHeader("X-Parse-Client-Key", clientKey)
+        ParseUser.getCurrentUser()?.getSessionToken()?.takeIf { it.isNotBlank() }?.let {
+            builder.addHeader("X-Parse-Session-Token", it)
+        }
+        return builder
     }
 
     // ==========================================
@@ -173,52 +181,80 @@ class Back4AppClient {
     // ==========================================
     // 2. TOP UP REQUESTS
     // ==========================================
-    suspend fun submitTopUpRequest(req: TopUpRequestEntity): Result<String> {
-        val json = JSONObject().apply {
-            put("requestId", req.id)
-            put("userId", req.userId)
-            put("userName", req.userName)
-            put("userPhone", req.userPhone)
-            put("amountDzd", req.amountDzd)
-            put("provider", req.provider)
-            put("reference", req.reference)
-            put("receiptImageUri", req.receiptImageUri)
-            put("status", req.status)
-            put("adminNote", req.adminNote)
-            put("createdAtMs", req.createdAt)
-            put("reviewedAtMs", req.reviewedAt)
+    suspend fun submitTopUpRequest(req: TopUpRequestEntity): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val user = ParseUser.getCurrentUser()
+                ?: return@withContext Result.failure(SecurityException("سجّل الدخول قبل إرسال طلب الشحن."))
+            if (user.objectId != req.userId) {
+                return@withContext Result.failure(SecurityException("هوية حساب Parse لا تطابق صاحب طلب الشحن."))
+            }
+            if (req.amountDzd < 200) return@withContext Result.failure(IllegalArgumentException("الحد الأدنى للشحن هو 200 دج."))
+            val json = JSONObject().apply {
+                put("requestId", req.id)
+                put("user", JSONObject().put("__type", "Pointer").put("className", "_User").put("objectId", user.objectId))
+                put("userId", user.objectId)
+                put("userName", req.userName)
+                put("userPhone", req.userPhone)
+                put("amountDzd", req.amountDzd)
+                put("provider", req.provider)
+                put("reference", req.reference)
+                put("receiptImageUri", req.receiptImageUri)
+                put("status", "PENDING")
+                put("adminNote", "")
+                put("createdAtMs", req.createdAt)
+                put("reviewedAtMs", 0L)
+            }
+            val request = newRequestBuilder("classes/TopUpRequest")
+                .post(json.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+            httpClient.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (response.isSuccessful) Result.success(JSONObject(body).optString("objectId", req.id))
+                else Result.failure(Exception("تعذر حفظ طلب الشحن في Back4App: $body"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
         }
-        return upsertObject("TopUpRequest", "requestId", req.id, json)
     }
 
-    suspend fun getTopUpRequests(): Result<List<TopUpRequestEntity>> = withContext(Dispatchers.IO) {
+    suspend fun getTopUpRequests(): Result<List<TopUpRequestEntity>> = fetchTopUpRequests(null)
+
+    suspend fun getUserTopUpRequests(userId: String): Result<List<TopUpRequestEntity>> =
+        fetchTopUpRequests(userId.takeIf { it.isNotBlank() && it != "user_me" })
+
+    private suspend fun fetchTopUpRequests(userId: String?): Result<List<TopUpRequestEntity>> = withContext(Dispatchers.IO) {
         try {
-            val req = newRequestBuilder("classes/TopUpRequest?order=-createdAt&limit=200").get().build()
-            val resp = httpClient.newCall(req).execute()
-            val body = resp.body?.string().orEmpty()
-            if (resp.isSuccessful) {
+            val where = if (userId == null) null else JSONObject().put(
+                "user", JSONObject().put("__type", "Pointer").put("className", "_User").put("objectId", userId)
+            )
+            val query = where?.let { "?where=${URLEncoder.encode(it.toString(), "UTF-8")}&order=-createdAt&limit=200" }
+                ?: "?order=-createdAt&limit=200"
+            val request = newRequestBuilder("classes/TopUpRequest$query").get().build()
+            httpClient.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) return@withContext Result.failure(Exception("تعذر تحميل طلبات الشحن: $body"))
                 val results = JSONObject(body).optJSONArray("results") ?: JSONArray()
-                val list = mutableListOf<TopUpRequestEntity>()
-                for (i in 0 until results.length()) {
-                    val item = results.getJSONObject(i)
-                    list.add(TopUpRequestEntity(
-                        id = item.optString("requestId").ifBlank { item.optString("objectId") },
-                        userId = item.optString("userId"),
-                        userName = item.optString("userName"),
-                        userPhone = item.optString("userPhone"),
-                        amountDzd = item.optInt("amountDzd", 0),
-                        provider = item.optString("provider"),
-                        reference = item.optString("reference"),
-                        receiptImageUri = item.optString("receiptImageUri"),
-                        status = item.optString("status", "PENDING"),
-                        adminNote = item.optString("adminNote"),
-                        createdAt = item.optLong("createdAtMs", System.currentTimeMillis()),
-                        reviewedAt = item.optLong("reviewedAtMs", 0L)
-                    ))
+                val list = buildList {
+                    for (i in 0 until results.length()) {
+                        val item = results.optJSONObject(i) ?: continue
+                        val pointer = item.optJSONObject("user")
+                        add(TopUpRequestEntity(
+                            id = item.optString("requestId").ifBlank { item.optString("objectId") },
+                            userId = pointer?.optString("objectId").orEmpty().ifBlank { item.optString("userId") },
+                            userName = item.optString("userName"),
+                            userPhone = item.optString("userPhone"),
+                            amountDzd = item.optInt("amountDzd", 0),
+                            provider = item.optString("provider"),
+                            reference = item.optString("reference"),
+                            receiptImageUri = item.optString("receiptImageUri"),
+                            status = item.optString("status", "PENDING"),
+                            adminNote = item.optString("adminNote"),
+                            createdAt = item.optLong("createdAtMs", System.currentTimeMillis()),
+                            reviewedAt = item.optLong("reviewedAtMs", 0L)
+                        ))
+                    }
                 }
                 Result.success(list)
-            } else {
-                Result.failure(Exception("تعذر تحميل طلبات الشحن: $body"))
             }
         } catch (e: Exception) {
             Result.failure(e)
@@ -226,13 +262,25 @@ class Back4AppClient {
     }
 
     suspend fun updateTopUpStatus(requestId: String, newStatus: String, adminNote: String): Result<Unit> = withContext(Dispatchers.IO) {
+        when (newStatus) {
+            "APPROVED" -> callTopUpCloudFunction("approveTopUpRequest", requestId, adminNote).map { }
+            "REJECTED" -> callTopUpCloudFunction("rejectTopUpRequest", requestId, adminNote).map { }
+            else -> Result.failure(IllegalArgumentException("حالة قرار الشحن غير صالحة."))
+        }
+    }
+
+    private suspend fun callTopUpCloudFunction(name: String, requestId: String, adminNote: String): Result<JSONObject> = withContext(Dispatchers.IO) {
         try {
-            val data = JSONObject().apply {
-                put("status", newStatus)
-                put("adminNote", adminNote)
-                put("reviewedAtMs", System.currentTimeMillis())
+            if (ParseUser.getCurrentUser() == null) return@withContext Result.failure(SecurityException("يجب تسجيل دخول المشرف."))
+            val params = JSONObject().put("requestId", requestId).put("adminNote", adminNote)
+            val request = newRequestBuilder("functions/$name")
+                .post(params.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+            httpClient.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (response.isSuccessful) Result.success(JSONObject(body).optJSONObject("result") ?: JSONObject())
+                else Result.failure(Exception("فشلت مراجعة طلب الشحن: $body"))
             }
-            upsertObject("TopUpRequest", "requestId", requestId, data).map { }
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -463,16 +511,22 @@ class Back4AppClient {
     // --- Wallets ---
     suspend fun saveWallet(w: WalletEntity): Result<String> {
         val json = JSONObject().apply {
+            put("user", JSONObject().put("__type", "Pointer").put("className", "_User").put("objectId", w.userId))
             put("userId", w.userId)
             put("balanceDzd", w.balanceDzd)
             put("updatedAt", w.updatedAt)
+            put("updatedAtMs", w.updatedAt)
         }
         return upsertObject("Wallet", "userId", w.userId, json)
     }
 
     suspend fun getWallet(userId: String): Result<WalletEntity?> = withContext(Dispatchers.IO) {
         try {
-            val encodedWhere = URLEncoder.encode(JSONObject().put("userId", userId).toString(), "UTF-8")
+            val userPointer = JSONObject().put("__type", "Pointer").put("className", "_User").put("objectId", userId)
+            val where = JSONObject().put("\$or", JSONArray()
+                .put(JSONObject().put("user", userPointer))
+                .put(JSONObject().put("userId", userId)))
+            val encodedWhere = URLEncoder.encode(where.toString(), "UTF-8")
             val req = newRequestBuilder("classes/Wallet?where=$encodedWhere&limit=1").get().build()
             val resp = httpClient.newCall(req).execute()
             val body = resp.body?.string().orEmpty()
@@ -483,7 +537,7 @@ class Back4AppClient {
                     Result.success(WalletEntity(
                         userId = userId,
                         balanceDzd = item.optInt("balanceDzd", 0),
-                        updatedAt = item.optLong("updatedAt", System.currentTimeMillis())
+                        updatedAt = item.optLong("updatedAtMs", item.optLong("updatedAt", System.currentTimeMillis()))
                     ))
                 } else {
                     Result.success(null)

@@ -2,10 +2,15 @@ package com.example.data.remote.auth
 
 import android.util.Log
 import com.parse.ParseAnonymousUtils
+import com.parse.LogInCallback
+import com.parse.ParseException
 import com.parse.ParseUser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 /** بيانات جلسة المصادقة التي تحتاجها طبقات التطبيق دون ربطها بمزوّد محدد. */
 data class AuthUser(
@@ -29,10 +34,11 @@ class AuthRepository {
     )
 
     val currentUser: AuthUser?
-        get() = ParseUser.getCurrentUser()?.takeIf { !it.isDataAvailable || it.objectId != null }?.toAuthUser()
+        get() = runCatching { ParseUser.getCurrentUser() }
+            .getOrNull()?.takeIf { !it.isDataAvailable || it.objectId != null }?.toAuthUser()
 
     val currentUserId: String?
-        get() = ParseUser.getCurrentUser()?.objectId
+        get() = runCatching { ParseUser.getCurrentUser()?.objectId }.getOrNull()
 
     suspend fun registerWithEmail(email: String, password: String): Result<AuthUser?> = withContext(Dispatchers.IO) {
         try {
@@ -58,9 +64,43 @@ class AuthRepository {
         }
     }
 
+    suspend fun updateCurrentUserProfile(
+        name: String,
+        phone: String,
+        wilaya: String,
+        commune: String
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val user = ParseUser.getCurrentUser()
+                ?: return@withContext Result.failure(SecurityException("يجب تسجيل الدخول أولاً."))
+            user.put("name", name.trim())
+            user.put("phone", phone.trim())
+            user.put("wilaya", wilaya.trim())
+            user.put("commune", commune.trim())
+            user.save()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "فشل حفظ ملف المستخدم في Back4App: ${e.message}", e)
+            Result.failure(Exception(toArabicMessage(e), e))
+        }
+    }
+
     suspend fun signInAnonymously(): Result<AuthUser?> = withContext(Dispatchers.IO) {
         try {
-            val user = withTimeout(4_000L) { ParseAnonymousUtils.logIn() }
+            val user = withTimeout(4_000L) {
+                suspendCancellableCoroutine { continuation ->
+                    ParseAnonymousUtils.logIn(object : LogInCallback {
+                        override fun done(user: ParseUser?, error: ParseException?) {
+                            if (!continuation.isActive) return
+                            when {
+                                error != null -> continuation.resumeWithException(error)
+                                user != null -> continuation.resume(user)
+                                else -> continuation.resumeWithException(IllegalStateException("لم تُرجع خدمة الحساب مستخدماً."))
+                            }
+                        }
+                    })
+                }
+            }
             Result.success(user.toAuthUser())
         } catch (e: Exception) {
             Log.e(TAG, "فشل الدخول كزائر: ${e.message}", e)

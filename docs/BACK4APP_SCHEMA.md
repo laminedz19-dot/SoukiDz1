@@ -2,7 +2,7 @@
 
 ## نطاق المرحلة الأولى
 
-هذا المستند هو **مخطط الترحيل** وليس تنفيذ الترحيل نفسه. تمت قراءة:
+هذا المستند يصف مخطط الترحيل الأوسع. **تدفق طلبات شحن الرصيد ومصادقة Parse مطبّقان جزئياً**، لكن بقية مستودعات Firebase لم تُرحّل كلها. تمت قراءة:
 
 - `FirestoreService.kt` و`FirestoreModels.kt`.
 - كيانات Room وواجهاتها DAO.
@@ -28,7 +28,7 @@
 | `users` | `_User` | هوية Parse الأساسية | الحقول الإدارية لا يغيرها العميل |
 | `listings` | `Listing` | `owner -> _User` | الإعلان مرتبط بصاحبه |
 | `payments` | `PaymentOrder` | `user -> _User`, `listing -> Listing` | سجل تدقيق؛ لا يعدّل العميل بعد الإنشاء |
-| `topUpRequests` | `TopUpRequest` | `user -> _User`, `reviewedBy -> _User` | إيصال ParseFile، والاعتماد عبر Cloud Code |
+| `topUpRequests` | `TopUpRequest` | `user -> _User`, `reviewedBy -> _User` | حقول الطلب/قرار Cloud Code؛ الوصل الجديد Data URI داخل السجل المحمي بـACL، وليس ParseFile عام |
 | `wallets` | `Wallet` | `user -> _User` | رصيد حساس |
 | Room `wallet_transactions` | `WalletTransaction` | `user -> _User` | سجل غير قابل للتلاعب من العميل |
 | Room `chat_messages` | `ChatMessage` | `listing`, `sender`, `receiver` | يستخدم Parse Live Query فقط في المرحلة السابعة/الخامسة |
@@ -48,7 +48,7 @@ Parse ينشئ `objectId` خاصاً به. للحفاظ على التوافق م
 - بعد إنشاء جميع السجلات، يبني سكربت النقل الـ Pointers من جدول المعرفات القديمة إلى `objectId` الجديد.
 - لا يتم استخدام رقم الهاتف أو الاسم كمفتاح ربط.
 - تواريخ Firestore Timestamp وmilliseconds تتحول إلى Parse Date.
-- روابط الصور القديمة تبقى مؤقتاً في حقول `*Legacy` حتى تنجح عملية نقلها إلى ParseFile.
+- روابط الصور القديمة تبقى مؤقتاً في حقول `*Legacy` حتى تنجح عملية نقلها. لا تستخدم ParseFile العام لوصولات الدفع الخاصة؛ روابط الملفات القديمة قد تبقى عامة لمن يملك الرابط.
 
 ## مطابقة الحقول الرئيسية
 
@@ -82,7 +82,7 @@ Parse ينشئ `objectId` خاصاً به. للحفاظ على التوافق م
 ### المالية والطلبات
 
 - `wallets/{userId}` تصبح `Wallet` مع Pointer إلى `_User`، ولا يسمح ACL للعميل بتعديل `balanceDzd`.
-- `topUpRequests` تصبح `TopUpRequest`، والإنشاء يكون `PENDING` فقط، بينما الاعتماد والرفض عبر Cloud Code.
+- `topUpRequests` تصبح `TopUpRequest`، والإنشاء يكون `PENDING` فقط، بينما الاعتماد والرفض عبر Cloud Code. هذه الدورة موصولة حالياً في التطبيقين وفق `docs/BACK4APP_TOPUP_SETUP_AR.md`.
 - `payments` تصبح `PaymentOrder`، ويحتفظ بها كسجل تدقيق.
 - `orders` تصبح `Order` مع Pointers للعميل والبائع والإعلان.
 
@@ -100,7 +100,7 @@ Parse ينشئ `objectId` خاصاً به. للحفاظ على التوافق م
 ## ما لم يمكن مطابقته حرفياً
 
 - Firestore Rules وCustom Claims ليست كياناً قابلاً للنسخ إلى Parse؛ ستتحول إلى CLP وACL وParse Role وCloud Code في المرحلة الثانية.
-- Firestore Storage Rules لا تنتقل إلى ParseFile تلقائياً؛ ستعاد صياغتها في beforeSave/afterDelete وCloud Code في المرحلة السادسة.
+- Firestore Storage Rules لا تنتقل إلى ParseFile تلقائياً؛ ملفات Parse العامة لا تحميها ACL السجل، لذا تصلح صور الوصل الجديدة داخل سجل `TopUpRequest` نفسه لحمايتها بACL.
 - Snapshot listeners الخاصة بالرسائل لا تعادل Firestore حرفياً؛ سيستخدم Parse Live Query للمحادثات فقط، بينما بقية البيانات باستعلامات عادية مع Cache Room.
 - `B4aSetting`, `B4aMenuItem`, و`B4aCustomField` جداول إدارة موجودة مسبقاً، ولذلك لا يغيرها هذا المخطط.
 

@@ -218,11 +218,11 @@ class MarketplaceViewModel(application: Application) : AndroidViewModel(applicat
         data class Error(val message: String) : TopUpListUiState
     }
 
-    val topUpListUiState: StateFlow<TopUpListUiState> = repository.getAllTopUpRequestsFromFirestore().map { result ->
+    val topUpListUiState: StateFlow<TopUpListUiState> = repository.getAllTopUpRequestsFromBack4App().map { result ->
         if (result.isSuccess) {
             TopUpListUiState.Success(result.getOrNull().orEmpty())
         } else {
-            val err = result.exceptionOrNull()?.message ?: "خطأ أثناء تحميل طلبات الشحن من Firebase Firestore"
+            val err = result.exceptionOrNull()?.message ?: "خطأ أثناء تحميل طلبات الشحن من Back4App"
             TopUpListUiState.Error(err)
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), TopUpListUiState.Loading)
