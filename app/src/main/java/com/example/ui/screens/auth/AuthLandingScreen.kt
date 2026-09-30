@@ -29,7 +29,8 @@ import com.example.ui.theme.EmeraldPrimary
 @Composable
 fun AuthLandingScreen(
     onRegister: () -> Unit,
-    onLogin: () -> Unit
+    onLogin: () -> Unit,
+    onGuest: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -97,7 +98,21 @@ fun AuthLandingScreen(
                 color = EmeraldPrimary
             )
         }
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(14.dp))
+        androidx.compose.material3.TextButton(
+            onClick = onGuest,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+        ) {
+            Text(
+                text = "متابعة التصفح كزائر",
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+        Spacer(modifier = Modifier.height(16.dp))
         Text(
             text = "بيع وشراء الأشياء المستعملة بسهولة وأمان",
             color = MaterialTheme.colorScheme.onSurfaceVariant,

@@ -47,6 +47,9 @@ interface ListingDao {
 
     @Query("UPDATE listings SET status = :status WHERE id = :id AND userId = :userId")
     suspend fun updateStatusForOwner(id: String, userId: String, status: String): Int
+
+    @Query("SELECT COUNT(*) FROM listings")
+    suspend fun getCount(): Int
 }
 
 @Dao

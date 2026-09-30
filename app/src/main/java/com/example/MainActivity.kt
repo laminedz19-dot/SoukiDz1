@@ -90,9 +90,8 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun SouqiApp(viewModel: MarketplaceViewModel) {
-    val isInitiallyLoggedIn = viewModel.repository.authService.currentUser != null
     var currentScreen by remember { 
-        mutableStateOf<Screen>(if (isInitiallyLoggedIn) Screen.MainTab("home") else Screen.AuthLanding) 
+        mutableStateOf<Screen>(Screen.MainTab("home")) 
     }
     var showSplash by remember { mutableStateOf(true) }
     val currentUserId by viewModel.currentUserId.collectAsState()
@@ -102,19 +101,8 @@ fun SouqiApp(viewModel: MarketplaceViewModel) {
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(Unit) {
-        if (viewModel.repository.authService.currentUser != null) {
-            currentScreen = Screen.MainTab("home")
-        }
-        delay(2_500L)
+        delay(1_200L)
         showSplash = false
-        if (viewModel.repository.authService.currentUser != null && currentScreen is Screen.AuthLanding) {
-            currentScreen = Screen.MainTab("home")
-        }
-    }
-
-    if (showSplash) {
-        SplashScreen()
-        return
     }
 
     LaunchedEffect(Unit) {
@@ -145,202 +133,215 @@ fun SouqiApp(viewModel: MarketplaceViewModel) {
         }
     }
 
-    Scaffold(
-        topBar = {
-            if (currentScreen is Screen.MainTab) {
-                SouqiTopBar(
-                    currentUserId = currentUserId,
-                    currentLang = currentLang,
-                    onToggleLang = {
-                        viewModel.setLanguage(if (currentLang == "ar") "fr" else "ar")
-                    },
-                    onLogoClick = {
-                        currentScreen = Screen.MainTab("home")
-                    },
-                    onSecurityClick = {
-                        currentScreen = Screen.SecurityCenter
-                    }
-                )
-            }
-        },
-        bottomBar = {
-            if (currentScreen is Screen.MainTab) {
-                SouqiBottomBar(
-                    currentTab = (currentScreen as Screen.MainTab).tab,
-                    onTabSelected = { newTab ->
-                        currentScreen = Screen.MainTab(newTab)
-                    }
-                )
-            }
-        },
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        modifier = Modifier.fillMaxSize()
-    ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-        ) {
-            AnimatedContent(
-                targetState = currentScreen,
-                transitionSpec = { fadeIn() togetherWith fadeOut() },
-                label = "screen_transition"
-            ) { screen ->
-                when (screen) {
-                    is Screen.MainTab -> {
-                        when (screen.tab) {
-                            "home" -> HomeScreen(
-                                viewModel = viewModel,
-                                onAdClick = { id -> currentScreen = Screen.AdDetails(id) },
-                                onCategoryClick = { catId ->
-                                    viewModel.selectedCategory.value = catId
-                                    currentScreen = Screen.MainTab("search")
-                                },
-                                onSearchClick = { currentScreen = Screen.MainTab("search") },
-                                onSellClick = { currentScreen = Screen.MainTab("create") }
-                            )
-                            "search" -> SearchScreen(
-                                viewModel = viewModel,
-                                onAdClick = { id -> currentScreen = Screen.AdDetails(id) }
-                            )
-                            "create" -> CreateAdScreen(
-                                viewModel = viewModel,
-                                onFinished = { newId ->
-                                    currentScreen = Screen.AdDetails(newId)
-                                },
-                                onCancel = { currentScreen = Screen.MainTab("home") }
-                            )
-                            "chat" -> {
-                                val allListings by viewModel.adminListings.collectAsState()
-                                val demoListing = allListings.firstOrNull()
-                                ChatScreen(
-                                    listingId = demoListing?.id ?: "list_1",
-                                    sellerId = demoListing?.userId ?: "user_yacine",
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            topBar = {
+                if (currentScreen is Screen.MainTab) {
+                    SouqiTopBar(
+                        currentUserId = currentUserId,
+                        currentLang = currentLang,
+                        onToggleLang = {
+                            viewModel.setLanguage(if (currentLang == "ar") "fr" else "ar")
+                        },
+                        onLogoClick = {
+                            currentScreen = Screen.MainTab("home")
+                        },
+                        onSecurityClick = {
+                            currentScreen = Screen.SecurityCenter
+                        }
+                    )
+                }
+            },
+            bottomBar = {
+                if (currentScreen is Screen.MainTab) {
+                    SouqiBottomBar(
+                        currentTab = (currentScreen as Screen.MainTab).tab,
+                        onTabSelected = { newTab ->
+                            currentScreen = Screen.MainTab(newTab)
+                        }
+                    )
+                }
+            },
+            snackbarHost = { SnackbarHost(snackbarHostState) },
+            modifier = Modifier.fillMaxSize()
+        ) { innerPadding ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+            ) {
+                AnimatedContent(
+                    targetState = currentScreen,
+                    transitionSpec = { fadeIn() togetherWith fadeOut() },
+                    label = "screen_transition"
+                ) { screen ->
+                    when (screen) {
+                        is Screen.MainTab -> {
+                            when (screen.tab) {
+                                "home" -> HomeScreen(
                                     viewModel = viewModel,
-                                    onBack = { currentScreen = Screen.MainTab("home") }
+                                    onAdClick = { id -> currentScreen = Screen.AdDetails(id) },
+                                    onCategoryClick = { catId ->
+                                        viewModel.selectedCategory.value = catId
+                                        currentScreen = Screen.MainTab("search")
+                                    },
+                                    onSearchClick = { currentScreen = Screen.MainTab("search") },
+                                    onSellClick = { currentScreen = Screen.MainTab("create") }
+                                )
+                                "search" -> SearchScreen(
+                                    viewModel = viewModel,
+                                    onAdClick = { id -> currentScreen = Screen.AdDetails(id) }
+                                )
+                                "create" -> CreateAdScreen(
+                                    viewModel = viewModel,
+                                    onFinished = { newId ->
+                                        currentScreen = Screen.AdDetails(newId)
+                                    },
+                                    onCancel = { currentScreen = Screen.MainTab("home") }
+                                )
+                                "chat" -> {
+                                    val allListings by viewModel.adminListings.collectAsState()
+                                    val demoListing = allListings.firstOrNull()
+                                    ChatScreen(
+                                        listingId = demoListing?.id ?: "list_1",
+                                        sellerId = demoListing?.userId ?: "user_yacine",
+                                        viewModel = viewModel,
+                                        onBack = { currentScreen = Screen.MainTab("home") }
+                                    )
+                                }
+                                "profile" -> ProfileScreen(
+                                    viewModel = viewModel,
+                                    onAdClick = { id -> currentScreen = Screen.AdDetails(id) },
+                                    onOpenLegal = { currentScreen = Screen.LegalInfo },
+                                    onOpenSecurity = { currentScreen = Screen.SecurityCenter },
+                                    onEditProfile = { currentScreen = Screen.EditProfile },
+                                    onChangePassword = { currentScreen = Screen.ChangePassword },
+                                    onLogout = { currentScreen = Screen.AuthLanding },
+                                    onLogin = { currentScreen = Screen.Login }
                                 )
                             }
-                            "profile" -> ProfileScreen(
+                        }
+
+                        is Screen.AdDetails -> {
+                            AdDetailsScreen(
+                                listingId = screen.listingId,
                                 viewModel = viewModel,
+                                onBack = { currentScreen = Screen.MainTab("home") },
+                                onOpenChat = { lId, sId ->
+                                    currentScreen = Screen.ChatConversation(lId, sId)
+                                },
+                                onOpenSellerProfile = { sId ->
+                                    currentScreen = Screen.SellerProfile(sId)
+                                },
+                                onOpenSecurity = {
+                                    currentScreen = Screen.SecurityCenter
+                                }
+                            )
+                        }
+
+                        is Screen.ChatConversation -> {
+                            ChatScreen(
+                                listingId = screen.listingId,
+                                sellerId = screen.sellerId,
+                                viewModel = viewModel,
+                                onBack = { currentScreen = Screen.AdDetails(screen.listingId) }
+                            )
+                        }
+
+                        is Screen.SellerProfile -> {
+                            SellerProfileScreen(
+                                sellerId = screen.sellerId,
+                                viewModel = viewModel,
+                                onBack = { currentScreen = Screen.MainTab("home") },
                                 onAdClick = { id -> currentScreen = Screen.AdDetails(id) },
-                                onOpenLegal = { currentScreen = Screen.LegalInfo },
-                                onOpenSecurity = { currentScreen = Screen.SecurityCenter },
-                                onEditProfile = { currentScreen = Screen.EditProfile },
-                                onChangePassword = { currentScreen = Screen.ChangePassword },
-                                onLogout = { currentScreen = Screen.AuthLanding },
+                                onOpenChat = { lId, sId -> currentScreen = Screen.ChatConversation(lId, sId) }
+                            )
+                        }
+
+                        is Screen.AuthLanding -> {
+                            AuthLandingScreen(
+                                onRegister = { currentScreen = Screen.Register },
+                                onLogin = { currentScreen = Screen.Login },
+                                onGuest = { currentScreen = Screen.MainTab("home") }
+                            )
+                        }
+
+                        is Screen.SecurityCenter -> {
+                            SecurityCenterScreen(
+                                viewModel = viewModel,
+                                onBack = { currentScreen = Screen.MainTab("profile") },
+                                onOpenLegal = { currentScreen = Screen.LegalInfo }
+                            )
+                        }
+
+                        is Screen.LegalInfo -> {
+                            LegalInfoScreen(
+                                onBack = { currentScreen = Screen.MainTab("profile") }
+                            )
+                        }
+
+                        is Screen.Register -> {
+                            RegisterScreen(
+                                viewModel = viewModel,
+                                onBack = { currentScreen = Screen.AuthLanding },
+                                onRegistered = { currentScreen = Screen.MainTab("home") },
                                 onLogin = { currentScreen = Screen.Login }
                             )
                         }
-                    }
 
-                    is Screen.AdDetails -> {
-                        AdDetailsScreen(
-                            listingId = screen.listingId,
-                            viewModel = viewModel,
-                            onBack = { currentScreen = Screen.MainTab("home") },
-                            onOpenChat = { lId, sId ->
-                                currentScreen = Screen.ChatConversation(lId, sId)
-                            },
-                            onOpenSellerProfile = { sId ->
-                                currentScreen = Screen.SellerProfile(sId)
-                            },
-                            onOpenSecurity = {
-                                currentScreen = Screen.SecurityCenter
-                            }
-                        )
-                    }
-
-                    is Screen.ChatConversation -> {
-                        ChatScreen(
-                            listingId = screen.listingId,
-                            sellerId = screen.sellerId,
-                            viewModel = viewModel,
-                            onBack = { currentScreen = Screen.AdDetails(screen.listingId) }
-                        )
-                    }
-
-                    is Screen.SellerProfile -> {
-                        SellerProfileScreen(
-                            sellerId = screen.sellerId,
-                            viewModel = viewModel,
-                            onBack = { currentScreen = Screen.MainTab("home") },
-                            onAdClick = { id -> currentScreen = Screen.AdDetails(id) },
-                            onOpenChat = { lId, sId -> currentScreen = Screen.ChatConversation(lId, sId) }
-                        )
-                    }
-
-                    is Screen.AuthLanding -> {
-                        AuthLandingScreen(
-                            onRegister = { currentScreen = Screen.Register },
-                            onLogin = { currentScreen = Screen.Login }
-                        )
-                    }
-
-                    is Screen.SecurityCenter -> {
-                        SecurityCenterScreen(
-                            viewModel = viewModel,
-                            onBack = { currentScreen = Screen.MainTab("profile") },
-                            onOpenLegal = { currentScreen = Screen.LegalInfo }
-                        )
-                    }
-
-                    is Screen.LegalInfo -> {
-                        LegalInfoScreen(
-                            onBack = { currentScreen = Screen.MainTab("profile") }
-                        )
-                    }
-
-                    is Screen.Register -> {
-                        RegisterScreen(
-                            viewModel = viewModel,
-                            onBack = { currentScreen = Screen.AuthLanding },
-                            onRegistered = { currentScreen = Screen.MainTab("home") },
-                            onLogin = { currentScreen = Screen.Login }
-                        )
-                    }
-
-                    is Screen.Login -> {
-                        LoginScreen(
-                            viewModel = viewModel,
-                            onBack = { currentScreen = Screen.AuthLanding },
-                            onLoggedIn = { currentScreen = Screen.MainTab("home") },
-                            onRegister = { currentScreen = Screen.Register },
-                            onForgotPassword = { currentScreen = Screen.ForgotPassword },
-                            onGoogleLogin = { viewModel.socialAuthUnavailable("Google") },
-                            onAppleLogin = { viewModel.socialAuthUnavailable("Apple") }
-                        )
-                    }
-
-                    is Screen.ForgotPassword -> {
-                        ForgotPasswordScreen(
-                            viewModel = viewModel,
-                            onBack = { currentScreen = Screen.Login },
-                            onLogin = { currentScreen = Screen.Login }
-                        )
-                    }
-
-                    is Screen.EditProfile -> {
-                        val user by viewModel.currentUser.collectAsState()
-                        if (user == null) {
-                            currentScreen = Screen.MainTab("profile")
-                        } else {
-                            EditProfileScreen(
-                                user = user!!,
+                        is Screen.Login -> {
+                            LoginScreen(
                                 viewModel = viewModel,
-                                onBack = { currentScreen = Screen.MainTab("profile") },
-                                onSaved = { currentScreen = Screen.MainTab("profile") }
+                                onBack = { currentScreen = Screen.AuthLanding },
+                                onLoggedIn = { currentScreen = Screen.MainTab("home") },
+                                onRegister = { currentScreen = Screen.Register },
+                                onForgotPassword = { currentScreen = Screen.ForgotPassword },
+                                onGoogleLogin = { viewModel.socialAuthUnavailable("Google") },
+                                onAppleLogin = { viewModel.socialAuthUnavailable("Apple") }
+                            )
+                        }
+
+                        is Screen.ForgotPassword -> {
+                            ForgotPasswordScreen(
+                                viewModel = viewModel,
+                                onBack = { currentScreen = Screen.Login },
+                                onLogin = { currentScreen = Screen.Login }
+                            )
+                        }
+
+                        is Screen.EditProfile -> {
+                            val user by viewModel.currentUser.collectAsState()
+                            if (user == null) {
+                                currentScreen = Screen.MainTab("profile")
+                            } else {
+                                EditProfileScreen(
+                                    user = user!!,
+                                    viewModel = viewModel,
+                                    onBack = { currentScreen = Screen.MainTab("profile") },
+                                    onSaved = { currentScreen = Screen.MainTab("profile") }
+                                )
+                            }
+                        }
+
+                        is Screen.ChangePassword -> {
+                            ChangePasswordScreen(
+                                viewModel = viewModel,
+                                onBack = { currentScreen = Screen.MainTab("profile") }
                             )
                         }
                     }
-
-                    is Screen.ChangePassword -> {
-                        ChangePasswordScreen(
-                            viewModel = viewModel,
-                            onBack = { currentScreen = Screen.MainTab("profile") }
-                        )
-                    }
                 }
             }
+        }
+
+        // Overlay splash screen: animates out seamlessly without breaking composable hierarchy
+        androidx.compose.animation.AnimatedVisibility(
+            visible = showSplash,
+            exit = androidx.compose.animation.fadeOut(
+                animationSpec = androidx.compose.animation.core.tween(400)
+            )
+        ) {
+            SplashScreen()
         }
     }
 }

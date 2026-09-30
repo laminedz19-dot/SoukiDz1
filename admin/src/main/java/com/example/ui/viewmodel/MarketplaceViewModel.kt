@@ -46,6 +46,15 @@ class MarketplaceViewModel(application: Application) : AndroidViewModel(applicat
     val repository = MarketplaceRepository(db)
 
     init {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                if (db.listingDao().getCount() == 0) {
+                    com.example.data.local.InitialDataSeeder.seed(db)
+                }
+            } catch (e: Exception) {
+                Log.w("MarketplaceViewModel", "Initial seeding check error: ${e.message}")
+            }
+        }
         viewModelScope.launch {
             val currentSettings = db.settingsDao().getSettingsDirect()
             if (currentSettings == null || (currentSettings.standardAdFeeDzd == 100 && currentSettings.featuredAdFeeDzd == 200)) {
