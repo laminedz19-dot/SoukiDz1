@@ -101,6 +101,18 @@ fun SouqiApp(viewModel: MarketplaceViewModel) {
 
     val snackbarHostState = remember { SnackbarHostState() }
 
+    LaunchedEffect(currentUserId) {
+        if (currentUserId.isNotBlank() && currentUserId != "deleted") {
+            if (currentScreen is Screen.AuthLanding || currentScreen is Screen.Login || currentScreen is Screen.Register) {
+                currentScreen = Screen.MainTab("home")
+            }
+        } else {
+            if (currentScreen !is Screen.AuthLanding && currentScreen !is Screen.Login && currentScreen !is Screen.Register && currentScreen !is Screen.ForgotPassword) {
+                currentScreen = Screen.AuthLanding
+            }
+        }
+    }
+
     LaunchedEffect(Unit) {
         // Show the branded developer splash for a brief 1.2s moment
         // Backend availability must never block startup.

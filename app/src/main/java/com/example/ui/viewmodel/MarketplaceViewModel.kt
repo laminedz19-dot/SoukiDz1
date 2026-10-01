@@ -1,7 +1,9 @@
 package com.example.ui.viewmodel
 
 import android.app.Application
+import android.content.Context
 import android.net.Uri
+import com.parse.ParseUser
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.local.AppDatabase
@@ -43,8 +45,28 @@ import java.util.UUID
 @OptIn(ExperimentalCoroutinesApi::class)
 class MarketplaceViewModel(application: Application) : AndroidViewModel(application) {
 
+    private val sessionPrefs = application.getSharedPreferences("souqi_user_session", Context.MODE_PRIVATE)
+
+    fun getSavedUserId(): String {
+        return sessionPrefs.getString("logged_in_user_id", "") ?: ""
+    }
+
+    fun saveLoggedInUserId(userId: String) {
+        if (userId.isNotBlank()) {
+            sessionPrefs.edit().putString("logged_in_user_id", userId).apply()
+        }
+    }
+
+    fun clearSavedUserId() {
+        sessionPrefs.edit().remove("logged_in_user_id").apply()
+    }
+
     // Declare state before init blocks: coroutines launched from init may start immediately.
-    private val _currentUserId = MutableStateFlow("user_me")
+    private val _currentUserId = MutableStateFlow(
+        sessionPrefs.getString("logged_in_user_id", null)?.takeIf { it.isNotBlank() && it != "deleted" }
+            ?: ParseUser.getCurrentUser()?.objectId?.takeIf { it.isNotBlank() }
+            ?: ""
+    )
     val currentUserId = _currentUserId.asStateFlow()
 
     private val db = AppDatabase.getDatabase(application)
@@ -77,8 +99,17 @@ class MarketplaceViewModel(application: Application) : AndroidViewModel(applicat
             try {
                 repository.syncListingsFromFirestore()
             } catch (_: Exception) {}
-            repository.authService.currentUserId?.let { uid ->
-                _currentUserId.value = uid
+
+            val savedUid = getSavedUserId()
+            if (savedUid.isNotBlank() && savedUid != "deleted") {
+                _currentUserId.value = savedUid
+            } else {
+                repository.authService.currentUserId?.let { uid ->
+                    if (uid.isNotBlank() && uid != "deleted") {
+                        saveLoggedInUserId(uid)
+                        _currentUserId.value = uid
+                    }
+                }
             }
         }
         viewModelScope.launch {
@@ -92,7 +123,7 @@ class MarketplaceViewModel(application: Application) : AndroidViewModel(applicat
         }
         viewModelScope.launch {
             _currentUserId.collectLatest { uid ->
-                if (uid.isNotBlank() && uid != "user_me" && uid != "admin_super") {
+                if (uid.isNotBlank() && uid != "deleted" && uid != "admin_super") {
                     try {
                         repository.getUserWalletFromFirestore(uid).collect { res ->
                             if (res.isSuccess) {
@@ -208,7 +239,7 @@ class MarketplaceViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     val userTopUpSyncState: StateFlow<TopUpSyncState> = _currentUserId.flatMapLatest { id ->
-        if (id.isBlank() || id == "user_me" || id == "admin_super") {
+        if (id.isBlank() || id == "deleted" || id == "admin_super") {
             kotlinx.coroutines.flow.flowOf(TopUpSyncState.Success(emptyList()))
         } else {
             repository.getUserTopUpRequestsFromFirestore(id).map { res ->
@@ -223,7 +254,7 @@ class MarketplaceViewModel(application: Application) : AndroidViewModel(applicat
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), TopUpSyncState.Loading)
 
     val userTopUpRequests: StateFlow<List<TopUpRequestEntity>> = _currentUserId.flatMapLatest { id ->
-        if (id.isBlank() || id == "user_me") {
+        if (id.isBlank() || id == "deleted") {
             repository.getAllTopUpRequests()
         } else {
             repository.getUserTopUpRequests(id)
@@ -260,7 +291,7 @@ class MarketplaceViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     val myPurchases: StateFlow<OrderListUiState> = _currentUserId.flatMapLatest { id ->
-        if (id.isBlank() || id == "user_me") {
+        if (id.isBlank() || id == "deleted") {
             kotlinx.coroutines.flow.flowOf(OrderListUiState.Success(emptyList()))
         } else {
             repository.getUserOrdersFlow(id).map { res ->
@@ -276,7 +307,7 @@ class MarketplaceViewModel(application: Application) : AndroidViewModel(applicat
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), OrderListUiState.Loading)
 
     val mySalesOrders: StateFlow<OrderListUiState> = _currentUserId.flatMapLatest { id ->
-        if (id.isBlank() || id == "user_me") {
+        if (id.isBlank() || id == "deleted") {
             kotlinx.coroutines.flow.flowOf(OrderListUiState.Success(emptyList()))
         } else {
             repository.getSellerOrdersFlow(id).map { res ->
@@ -503,6 +534,7 @@ class MarketplaceViewModel(application: Application) : AndroidViewModel(applicat
                 )
                 repository.saveUser(newUser)
                 repository.createEmptyWallet(userId)
+                saveLoggedInUserId(userId)
                 _currentUserId.value = userId
                 emitMessage("تم إنشاء الحساب بنجاح. مرحبًا بك في سوقي DZ!")
                 withContext(Dispatchers.Main) {
@@ -568,6 +600,7 @@ class MarketplaceViewModel(application: Application) : AndroidViewModel(applicat
                             repository.saveUser(localUser)
                         }
                     }
+                    saveLoggedInUserId(uid)
                     _currentUserId.value = uid
                     emitMessage("تم تسجيل الدخول بنجاح. مرحبًا ${localUser.name}!")
                     withContext(Dispatchers.Main) {
@@ -594,6 +627,7 @@ class MarketplaceViewModel(application: Application) : AndroidViewModel(applicat
                 }
                 return@launch
             }
+            saveLoggedInUserId(user.id)
             _currentUserId.value = user.id
             emitMessage("تم تسجيل الدخول بنجاح. مرحبًا ${user.name}!")
             withContext(Dispatchers.Main) {
@@ -603,6 +637,7 @@ class MarketplaceViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun logoutUser(onLoggedOut: () -> Unit = {}) {
+        clearSavedUserId()
         repository.authService.signOut()
         _currentUserId.value = ""
         emitMessage("تم تسجيل الخروج بنجاح.")
@@ -733,6 +768,7 @@ class MarketplaceViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun deleteCurrentAccount() {
+        clearSavedUserId()
         viewModelScope.launch {
             repository.deleteUserData(_currentUserId.value)
             _currentUserId.value = "deleted"
@@ -786,6 +822,8 @@ class MarketplaceViewModel(application: Application) : AndroidViewModel(applicat
             emitMessage(msg)
             return
         }
+
+        emitMessage("جاري إرسال طلب شحن الرصيد وحفظ الوصل...")
 
         viewModelScope.launch {
             try {

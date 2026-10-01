@@ -284,13 +284,11 @@ class MarketplaceRepository(
 
         // 4. Resolve authenticated user
         val currentFirebaseUser = authService.currentUser
-        if (currentFirebaseUser == null) {
-            return@withContext Result.failure(
+        val uid = currentFirebaseUser?.uid
+            ?: userId.takeIf { it.isNotBlank() && it != "deleted" }
+            ?: return@withContext Result.failure(
                 IllegalStateException("يجب تسجيل الدخول أو إنشاء حساب أولاً لتقديم طلب شحن الرصيد لربطه بمحفظتك الرقمية.")
             )
-        }
-
-        val uid = currentFirebaseUser.uid
 
         // 5. Generate requestId before uploading image
         val requestId = "req_" + UUID.randomUUID().toString().replace("-", "").take(16)
@@ -356,11 +354,11 @@ class MarketplaceRepository(
             ?: (if (userId.isNotBlank()) db.userDao().getUserByIdDirect(userId) else null)
             ?: db.userDao().getUserByIdDirect("user_me")
         val userName = localUser?.name?.ifBlank { null }
-            ?: currentFirebaseUser.displayName?.ifBlank { null }
-            ?: currentFirebaseUser.email?.substringBefore("@")
+            ?: currentFirebaseUser?.displayName?.ifBlank { null }
+            ?: currentFirebaseUser?.email?.substringBefore("@")
             ?: "مستخدم سوقي"
         val userPhone = localUser?.phone?.ifBlank { null }
-            ?: currentFirebaseUser.phoneNumber
+            ?: currentFirebaseUser?.phoneNumber
             ?: ""
 
         val now = System.currentTimeMillis()

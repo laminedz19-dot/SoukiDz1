@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.AddCard
 import androidx.compose.material.icons.filled.AddPhotoAlternate
@@ -107,7 +108,8 @@ fun ProfileTopUpDialog(
             }
         },
         text = {
-            val isUserLoggedIn = viewModel.repository.authService.currentUser != null
+            val currentUid by viewModel.currentUserId.collectAsState()
+            val isUserLoggedIn = currentUid.isNotBlank() && currentUid != "deleted"
             LazyColumn(modifier = Modifier.fillMaxWidth()) {
                 item {
                     if (!isUserLoggedIn) {
@@ -401,7 +403,7 @@ fun ProfileTopUpDialog(
             Button(
                 onClick = {
                     val currentUid = viewModel.currentUserId.value
-                    val isUserLoggedIn = currentUid.isNotBlank()
+                    val isUserLoggedIn = currentUid.isNotBlank() && currentUid != "deleted"
                     if (!isUserLoggedIn) {
                         topUpErrorText = "يرجى تسجيل الدخول أولاً بحسابك لإرسال طلب الشحن والوصل إلى المشرف."
                         return@Button
@@ -415,40 +417,30 @@ fun ProfileTopUpDialog(
                         topUpErrorText = "يرجى إرفاق صورة وصل التحويل أو إدخال رقم مرجع العملية على الأقل"
                         return@Button
                     }
-                    isSubmittingTopUp = true
+
+                    val reqAmount = amount
+                    val reqProvider = topUpProvider
+                    val reqRef = topUpReferenceText
+                    val reqReceipt = receiptImageUri
+
+                    // إغلاق النافذة فوراً عند إرسال طلب الشحن
+                    onDismiss()
+                    topUpReferenceText = ""
+                    receiptImageUri = ""
                     topUpErrorText = null
+
                     viewModel.submitTopUpRequest(
-                        amount = amount,
-                        provider = topUpProvider,
-                        reference = topUpReferenceText,
-                        receiptImageUri = receiptImageUri,
-                        onSuccess = {
-                            isSubmittingTopUp = false
-                            onDismiss()
-                            topUpReferenceText = ""
-                            receiptImageUri = ""
-                            topUpErrorText = null
-                        },
-                        onError = { err ->
-                            isSubmittingTopUp = false
-                            topUpErrorText = err
-                        }
+                        amount = reqAmount,
+                        provider = reqProvider,
+                        reference = reqRef,
+                        receiptImageUri = reqReceipt
                     )
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
-                enabled = !isSubmittingTopUp
+                colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary)
             ) {
-                if (isSubmittingTopUp) {
-                    CircularProgressIndicator(
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.size(16.dp),
-                        strokeWidth = 2.dp
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("جاري إرسال الطلب وحفظه...", fontSize = 12.sp)
-                } else {
-                    Text("إرسال طلب الشحن للمراجعة")
-                }
+                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("إرسال طلب الشحن للمراجعة")
             }
         },
         dismissButton = {
