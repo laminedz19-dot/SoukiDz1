@@ -123,7 +123,7 @@ fun ProfileTopUpDialog(
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(Icons.Default.Lock, contentDescription = null, tint = UrgentRed, modifier = Modifier.size(18.dp))
                                     Spacer(modifier = Modifier.width(6.dp))
-                                    Text("تنبيه: أنت تتصفح كزائر", fontWeight = FontWeight.Bold, color = UrgentRed, fontSize = 12.sp)
+                                    Text("تنبيه: الجلسة غير مفعلة", fontWeight = FontWeight.Bold, color = UrgentRed, fontSize = 12.sp)
                                 }
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(

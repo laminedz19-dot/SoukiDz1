@@ -1,7 +1,6 @@
 package com.example.data.remote.auth
 
 import android.util.Log
-import com.parse.ParseAnonymousUtils
 import com.parse.ParseRole
 import com.parse.ParseUser
 import kotlinx.coroutines.Dispatchers
@@ -54,27 +53,6 @@ class AuthRepository {
             Result.success(ParseUser.logIn(email, password).toAuthUser())
         } catch (e: Exception) {
             Log.e(TAG, "فشل تسجيل دخول الإدارة: ${e.message}", e)
-            Result.failure(Exception(toArabicMessage(e), e))
-        }
-    }
-
-    suspend fun signInAnonymously(): Result<AuthUser?> = withContext(Dispatchers.IO) {
-        try {
-            val user = withTimeout(4_000L) {
-                kotlinx.coroutines.suspendCancellableCoroutine<ParseUser> { cont ->
-                    ParseAnonymousUtils.logIn { parseUser, e ->
-                        if (e != null) {
-                            cont.resumeWith(Result.failure(e))
-                        } else if (parseUser != null) {
-                            cont.resumeWith(Result.success(parseUser))
-                        } else {
-                            cont.resumeWith(Result.failure(Exception("تعذر تسجيل الدخول كزائر")))
-                        }
-                    }
-                }
-            }
-            Result.success(user.toAuthUser())
-        } catch (e: Exception) {
             Result.failure(Exception(toArabicMessage(e), e))
         }
     }

@@ -12,6 +12,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.HowToReg
 import androidx.compose.material.icons.filled.Login
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -19,6 +21,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -29,8 +32,7 @@ import com.example.ui.theme.EmeraldPrimary
 @Composable
 fun AuthLandingScreen(
     onRegister: () -> Unit,
-    onLogin: () -> Unit,
-    onGuest: () -> Unit = {}
+    onLogin: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -51,18 +53,40 @@ fun AuthLandingScreen(
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "أنشئ حسابًا جديدًا أو سجّل الدخول للمتابعة",
+            text = "يرجى تسجيل الدخول أو إنشاء حساب جديد للمتابعة",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 14.sp,
             textAlign = TextAlign.Center
         )
-        Spacer(modifier = Modifier.height(28.dp))
+        Spacer(modifier = Modifier.height(32.dp))
+        Button(
+            onClick = onLogin,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(54.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Login,
+                contentDescription = null,
+                tint = Color.White
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "تسجيل الدخول",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
+        }
+        Spacer(modifier = Modifier.height(14.dp))
         OutlinedButton(
             onClick = onRegister,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(58.dp),
-            shape = RoundedCornerShape(32.dp)
+                .height(54.dp),
+            shape = RoundedCornerShape(16.dp)
         ) {
             Icon(
                 imageVector = Icons.Default.HowToReg,
@@ -71,50 +95,15 @@ fun AuthLandingScreen(
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "التسجيل / إنشاء حساب",
+                text = "إنشاء حساب جديد",
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
                 color = EmeraldPrimary
             )
         }
-        Spacer(modifier = Modifier.height(14.dp))
-        OutlinedButton(
-            onClick = onLogin,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(58.dp),
-            shape = RoundedCornerShape(32.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Default.Login,
-                contentDescription = null,
-                tint = EmeraldPrimary
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = "تسجيل الدخول بحساب موجود",
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold,
-                color = EmeraldPrimary
-            )
-        }
-        Spacer(modifier = Modifier.height(14.dp))
-        androidx.compose.material3.TextButton(
-            onClick = onGuest,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(48.dp)
-        ) {
-            Text(
-                text = "متابعة التصفح كزائر",
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.primary
-            )
-        }
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(24.dp))
         Text(
-            text = "بيع وشراء الأشياء المستعملة بسهولة وأمان",
+            text = "سوق إلكتروني موثوق للتجارة الآمنة عبر 69 ولاية",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 12.sp,
             textAlign = TextAlign.Center

@@ -282,21 +282,8 @@ class MarketplaceRepository(
             return@withContext Result.failure(IllegalArgumentException("يجب إرفاق صورة وصل التحويل أو إدخال رقم مرجع العملية على الأقل."))
         }
 
-        // 4. Resolve authenticated user or anonymous user
-        var currentFirebaseUser = authService.currentUser
-        if (currentFirebaseUser == null) {
-            try {
-                val anonResult = withTimeoutOrNull(6000L) {
-                    authService.signInAnonymously()
-                }
-                if (anonResult?.isSuccess == true) {
-                    currentFirebaseUser = anonResult.getOrNull()
-                }
-            } catch (t: Throwable) {
-                android.util.Log.w("MarketplaceRepository", "Anonymous auth attempt: ${t.message}")
-            }
-        }
-
+        // 4. Resolve authenticated user
+        val currentFirebaseUser = authService.currentUser
         if (currentFirebaseUser == null) {
             return@withContext Result.failure(
                 IllegalStateException("يجب تسجيل الدخول أو إنشاء حساب أولاً لتقديم طلب شحن الرصيد لربطه بمحفظتك الرقمية.")

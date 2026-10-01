@@ -30,7 +30,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import com.example.ui.components.SouqiBottomBar
-import com.example.ui.components.VisitorAnnouncementBar
 import com.example.ui.components.SouqiTopBar
 import com.example.ui.screens.auth.AuthLandingScreen
 import com.example.ui.screens.auth.LoginScreen
@@ -92,12 +91,11 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun SouqiApp(viewModel: MarketplaceViewModel) {
-    // New users start at the authentication choice after the splash screen.
+    val currentUserId by viewModel.currentUserId.collectAsState()
     var currentScreen by remember {
-        mutableStateOf<Screen>(Screen.AuthLanding)
+        mutableStateOf<Screen>(if (viewModel.currentUserId.value.isNotBlank()) Screen.MainTab("home") else Screen.AuthLanding)
     }
     var showSplash by remember { mutableStateOf(true) }
-    val currentUserId by viewModel.currentUserId.collectAsState()
     val currentLang by viewModel.language.collectAsState()
     val isAdminSessionActive by viewModel.isAdminSessionActive.collectAsState()
 
@@ -127,11 +125,11 @@ fun SouqiApp(viewModel: MarketplaceViewModel) {
             is Screen.AdDetails -> currentScreen = Screen.MainTab("home")
             is Screen.ChatConversation -> currentScreen = Screen.MainTab("chat")
             is Screen.SellerProfile -> currentScreen = Screen.MainTab("home")
-            is Screen.AuthLanding -> currentScreen = Screen.MainTab("home")
+            is Screen.AuthLanding -> { /* Keep on AuthLanding */ }
             is Screen.SecurityCenter -> currentScreen = Screen.MainTab("profile")
             is Screen.LegalInfo -> currentScreen = Screen.MainTab("profile")
-            is Screen.Register -> currentScreen = Screen.MainTab("profile")
-            is Screen.Login -> currentScreen = Screen.MainTab("profile")
+            is Screen.Register -> currentScreen = Screen.AuthLanding
+            is Screen.Login -> currentScreen = Screen.AuthLanding
             is Screen.ForgotPassword -> currentScreen = Screen.Login
             is Screen.EditProfile -> currentScreen = Screen.MainTab("profile")
             is Screen.ChangePassword -> currentScreen = Screen.MainTab("profile")
@@ -142,11 +140,7 @@ fun SouqiApp(viewModel: MarketplaceViewModel) {
         Scaffold(
             topBar = {
                 if (currentScreen is Screen.MainTab) {
-                    androidx.compose.foundation.layout.Column(
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        VisitorAnnouncementBar()
-                        SouqiTopBar(
+                    SouqiTopBar(
                         currentUserId = currentUserId,
                         currentLang = currentLang,
                         onToggleLang = {
@@ -155,11 +149,10 @@ fun SouqiApp(viewModel: MarketplaceViewModel) {
                         onLogoClick = {
                             currentScreen = Screen.MainTab("home")
                         },
-                            onSecurityClick = {
-                                currentScreen = Screen.SecurityCenter
-                            }
-                        )
-                    }
+                        onSecurityClick = {
+                            currentScreen = Screen.SecurityCenter
+                        }
+                    )
                 }
             },
             bottomBar = {
@@ -271,8 +264,7 @@ fun SouqiApp(viewModel: MarketplaceViewModel) {
                         is Screen.AuthLanding -> {
                             AuthLandingScreen(
                                 onRegister = { currentScreen = Screen.Register },
-                                onLogin = { currentScreen = Screen.Login },
-                                onGuest = { currentScreen = Screen.MainTab("home") }
+                                onLogin = { currentScreen = Screen.Login }
                             )
                         }
 
