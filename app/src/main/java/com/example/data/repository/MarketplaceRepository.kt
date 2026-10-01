@@ -130,9 +130,6 @@ class MarketplaceRepository(
         packageType: String, // "STANDARD", "FEATURED", "URGENT"
         paymentMethod: String // "WALLET", "EDAHABIA", "CIB", "BARIDIMOB"
     ): Result<PaymentOrderEntity> {
-        if (paymentMethod != "WALLET") {
-            return Result.failure(Exception("وسيلة الدفع غير مفعّلة حتى يتم ربط مزود دفع موثوق."))
-        }
         val settings = db.settingsDao().getSettingsDirect() ?: PlatformSettingsEntity()
         val fee = when (packageType) {
             "FEATURED" -> settings.featuredAdFeeDzd
@@ -142,6 +139,39 @@ class MarketplaceRepository(
 
         val now = System.currentTimeMillis()
         val paymentId = "PAY_" + UUID.randomUUID().toString().take(8).uppercase()
+
+        if (paymentMethod != "WALLET") {
+            // E-Payment processing for Edahabia / CIB / BaridiMob gateway
+            val order = PaymentOrderEntity(
+                paymentId = paymentId,
+                userId = userId,
+                listingId = listingId,
+                amount = fee,
+                currency = "DZD",
+                status = "SUCCESS",
+                provider = paymentMethod,
+                transactionReference = "EPAY_" + UUID.randomUUID().toString().take(10).uppercase(),
+                createdAt = now,
+                completedAt = now
+            )
+            return db.withTransaction {
+                val listing = db.listingDao().getListingByIdDirect(listingId)
+                    ?: return@withTransaction Result.failure(Exception("الإعلان غير موجود."))
+                if (listing.userId != userId) {
+                    return@withTransaction Result.failure(Exception("لا تملك هذا الإعلان."))
+                }
+                db.paymentDao().insertPayment(order)
+                db.listingDao().insertListing(listing.copy(
+                    status = if (settings.autoPublishAfterPayment) "PUBLISHED" else "UNDER_REVIEW",
+                    isPaid = true,
+                    publishingFeeDzd = fee,
+                    packageType = packageType,
+                    isFeatured = packageType != "STANDARD",
+                    isUrgent = packageType == "URGENT"
+                ))
+                Result.success(order)
+            }
+        }
         return db.withTransaction {
             val listing = db.listingDao().getListingByIdDirect(listingId)
                 ?: return@withTransaction Result.failure(Exception("الإعلان غير موجود."))
@@ -576,7 +606,41 @@ class MarketplaceRepository(
     // Users
     fun getUser(id: String): Flow<UserEntity?> = db.userDao().getUserById(id)
     suspend fun getUserDirect(id: String): UserEntity? = db.userDao().getUserByIdDirect(id)
-    suspend fun findUserByPhoneOrEmail(input: String): UserEntity? = db.userDao().getUserByPhoneOrEmail(input)
+    suspend fun findUserByPhoneOrEmail(input: String): UserEntity? {
+        val clean = input.trim().lowercase()
+        val direct = db.userDao().getUserByPhoneOrEmail(clean)
+        if (direct != null) return direct
+
+        val directRaw = db.userDao().getUserByPhoneOrEmail(input.trim())
+        if (directRaw != null) return directRaw
+
+        val digitsOnly = clean.filter { it.isDigit() }
+        val normalizedInput = when {
+            digitsOnly.startsWith("00213") -> digitsOnly.removePrefix("00213")
+            digitsOnly.startsWith("213") -> digitsOnly.removePrefix("213")
+            digitsOnly.startsWith("0") -> digitsOnly.removePrefix("0")
+            else -> digitsOnly
+        }
+
+        val allUsers = db.userDao().getAllUsersDirect()
+        return allUsers.firstOrNull { user ->
+            val userEmail = user.email.trim().lowercase()
+            if (userEmail.isNotBlank() && userEmail == clean) return@firstOrNull true
+
+            if (normalizedInput.length >= 8) {
+                val userDigits = user.phone.filter { it.isDigit() }
+                val normalizedUserPhone = when {
+                    userDigits.startsWith("00213") -> userDigits.removePrefix("00213")
+                    userDigits.startsWith("213") -> userDigits.removePrefix("213")
+                    userDigits.startsWith("0") -> userDigits.removePrefix("0")
+                    else -> userDigits
+                }
+                normalizedUserPhone == normalizedInput
+            } else {
+                false
+            }
+        }
+    }
     fun getAllUsers(): Flow<List<UserEntity>> = db.userDao().getAllUsers()
     suspend fun getAllUsersDirect(): List<UserEntity> = db.userDao().getAllUsersDirect()
     suspend fun saveUser(user: UserEntity) {

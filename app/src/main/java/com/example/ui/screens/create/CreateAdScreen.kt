@@ -990,6 +990,9 @@ fun CreateAdScreen(
                                 isProcessingPayment = false
                                 paymentCompleted = true
                                 onFinished(newListingId)
+                            },
+                            onError = { _ ->
+                                isProcessingPayment = false
                             }
                         )
                     },

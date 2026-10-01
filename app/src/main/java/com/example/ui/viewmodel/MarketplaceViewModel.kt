@@ -890,7 +890,8 @@ class MarketplaceViewModel(application: Application) : AndroidViewModel(applicat
         videoUrl: String,
         packageType: String, // "STANDARD", "FEATURED", "URGENT"
         paymentMethod: String, // "WALLET", "EDAHABIA", "CIB", "BARIDIMOB"
-        onSuccess: (String) -> Unit
+        onSuccess: (String) -> Unit,
+        onError: (String) -> Unit = {}
     ) {
         viewModelScope.launch {
             val user = repository.getUserDirect(_currentUserId.value) ?: UserEntity(
@@ -986,7 +987,11 @@ class MarketplaceViewModel(application: Application) : AndroidViewModel(applicat
                 onSuccess(listingId)
             }.onFailure { err ->
                 repository.updateListingStatus(listingId, "PAYMENT_FAILED", "فشل الدفع: " + err.message)
-                emitMessage("تعذر إتمام الدفع: " + (err.message ?: "خطأ غير معروف"))
+                val errorMsg = "تعذر إتمام الدفع: " + (err.message ?: "خطأ غير معروف")
+                emitMessage(errorMsg)
+                withContext(Dispatchers.Main) {
+                    onError(errorMsg)
+                }
             }
         }
     }

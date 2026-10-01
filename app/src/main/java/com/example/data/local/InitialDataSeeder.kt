@@ -22,8 +22,8 @@ object InitialDataSeeder {
         // 2. Demo Users
         val currentUser = UserEntity(
             id = "user_me",
-            phone = "+213 000 00 00 01",
-            email = "demo-user@souqidz.invalid",
+            phone = "0555123456",
+            email = "achridz01@gmail.com",
             name = "محمد أمين دزيري",
             avatarUrl = "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200",
             wilaya = "الجزائر العاصمة",
