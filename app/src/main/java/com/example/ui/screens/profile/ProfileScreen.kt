@@ -196,6 +196,21 @@ fun ProfileScreen(
                                         modifier = Modifier.size(18.dp)
                                     )
                                 }
+                                if (currentUser?.role == "ADMIN" || currentUser?.email == "laminedz.19@gmail.com" || currentUser?.email == "laminedz19@gmail.com") {
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Surface(
+                                        color = EmeraldPrimary,
+                                        shape = RoundedCornerShape(4.dp)
+                                    ) {
+                                        Text(
+                                            text = "مشرف النظام",
+                                            color = androidx.compose.ui.graphics.Color.White,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
                             }
 
                             Spacer(modifier = Modifier.height(2.dp))

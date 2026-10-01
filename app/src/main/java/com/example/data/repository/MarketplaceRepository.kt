@@ -608,6 +608,40 @@ class MarketplaceRepository(
     suspend fun getUserDirect(id: String): UserEntity? = db.userDao().getUserByIdDirect(id)
     suspend fun findUserByPhoneOrEmail(input: String): UserEntity? {
         val clean = input.trim().lowercase()
+
+        if (clean == "laminedz.19@gmail.com" || clean == "laminedz19@gmail.com") {
+            val adminUser = db.userDao().getUserByIdDirect("user_admin")
+            if (adminUser != null) {
+                if (adminUser.email != clean) {
+                    val updated = adminUser.copy(email = clean)
+                    db.userDao().insertUser(updated)
+                    return updated
+                }
+                return adminUser
+            } else {
+                val newAdmin = UserEntity(
+                    id = "user_admin",
+                    phone = "+213 555 12 34 56",
+                    email = clean,
+                    name = "المشرف العام (Lamine DZ)",
+                    avatarUrl = "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200",
+                    wilaya = "الجزائر العاصمة",
+                    commune = "الجزائر الوسطى",
+                    bio = "الحساب الرسمي لإدارة ومنصة سوقي DZ.",
+                    sellerRating = 5.0,
+                    reviewsCount = 50,
+                    adsCount = 0,
+                    createdAt = System.currentTimeMillis(),
+                    isVerified = true,
+                    verificationRequested = false,
+                    isBanned = false,
+                    role = "ADMIN"
+                )
+                db.userDao().insertUser(newAdmin)
+                return newAdmin
+            }
+        }
+
         val direct = db.userDao().getUserByPhoneOrEmail(clean)
         if (direct != null) return direct
 

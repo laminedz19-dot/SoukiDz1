@@ -153,7 +153,7 @@ fun AdminLoginGate(
     viewModel: MarketplaceViewModel,
     onSuccess: () -> Unit
 ) {
-    var email by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf("laminedz.19@gmail.com") }
     var password by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
@@ -234,7 +234,7 @@ fun AdminLoginGate(
                         errorMessage = null
                     },
                     label = { Text("البريد الإلكتروني للمسؤول") },
-                    placeholder = { Text("admin@soukidz.dz") },
+                    placeholder = { Text("laminedz.19@gmail.com") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                     leadingIcon = {

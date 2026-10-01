@@ -42,9 +42,9 @@ object InitialDataSeeder {
 
         val adminUser = UserEntity(
             id = "user_admin",
-            phone = "+213 000 00 00 02",
-            email = "admin-demo@souqidz.invalid",
-            name = "إدارة سوقي DZ",
+            phone = "+213 555 12 34 56",
+            email = "laminedz.19@gmail.com",
+            name = "المشرف العام (Lamine DZ)",
             avatarUrl = "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200",
             wilaya = "الجزائر العاصمة",
             commune = "الجزائر الوسطى",
