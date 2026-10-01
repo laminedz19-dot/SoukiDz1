@@ -104,9 +104,9 @@ fun SouqiApp(viewModel: MarketplaceViewModel) {
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(Unit) {
-        // Show the branded developer splash for exactly five seconds.
+        // Show the branded developer splash for a brief 1.2s moment
         // Backend availability must never block startup.
-        delay(5_000L)
+        delay(1_200L)
         showSplash = false
     }
 
