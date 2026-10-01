@@ -60,7 +60,19 @@ class AuthRepository {
 
     suspend fun signInAnonymously(): Result<AuthUser?> = withContext(Dispatchers.IO) {
         try {
-            val user = withTimeout(4_000L) { ParseAnonymousUtils.logIn() }
+            val user = withTimeout(4_000L) {
+                kotlinx.coroutines.suspendCancellableCoroutine<ParseUser> { cont ->
+                    ParseAnonymousUtils.logIn { parseUser, e ->
+                        if (e != null) {
+                            cont.resumeWith(Result.failure(e))
+                        } else if (parseUser != null) {
+                            cont.resumeWith(Result.success(parseUser))
+                        } else {
+                            cont.resumeWith(Result.failure(Exception("تعذر تسجيل الدخول كزائر")))
+                        }
+                    }
+                }
+            }
             Result.success(user.toAuthUser())
         } catch (e: Exception) {
             Log.e(TAG, "فشل الدخول كزائر: ${e.message}", e)

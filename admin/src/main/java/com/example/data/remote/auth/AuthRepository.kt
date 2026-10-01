@@ -60,7 +60,19 @@ class AuthRepository {
 
     suspend fun signInAnonymously(): Result<AuthUser?> = withContext(Dispatchers.IO) {
         try {
-            val user = withTimeout(4_000L) { ParseAnonymousUtils.logIn() }
+            val user = withTimeout(4_000L) {
+                kotlinx.coroutines.suspendCancellableCoroutine<ParseUser> { cont ->
+                    ParseAnonymousUtils.logIn { parseUser, e ->
+                        if (e != null) {
+                            cont.resumeWith(Result.failure(e))
+                        } else if (parseUser != null) {
+                            cont.resumeWith(Result.success(parseUser))
+                        } else {
+                            cont.resumeWith(Result.failure(Exception("تعذر تسجيل الدخول كزائر")))
+                        }
+                    }
+                }
+            }
             Result.success(user.toAuthUser())
         } catch (e: Exception) {
             Result.failure(Exception(toArabicMessage(e), e))
@@ -97,9 +109,10 @@ class AuthRepository {
         val roleQuery = ParseRole.getQuery()
         roleQuery.whereEqualTo("name", ADMIN_ROLE)
         val role = roleQuery.getFirst()
-        val members = role.getRelation("users").query
+        val members = role.getRelation<ParseUser>("users").query
         members.whereEqualTo("objectId", user.objectId)
-        return members.count() > 0
+        val userCount: Int = members.count()
+        return userCount > 0
     }
 
     suspend fun sendPasswordReset(email: String): Result<Unit> = withContext(Dispatchers.IO) {

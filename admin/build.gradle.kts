@@ -3,8 +3,12 @@ val localProperties = Properties().apply {
   val propertiesFile = rootProject.file("local.properties")
   if (propertiesFile.exists()) propertiesFile.inputStream().use { load(it) }
 }
-fun localValue(name: String, fallback: String = ""): String =
-  localProperties.getProperty(name, fallback).replace("\\", "\\\\").replace("\"", "\\\"")
+fun localValue(name: String, fallback: String = ""): String {
+  val envVal = System.getenv(name)
+  if (!envVal.isNullOrBlank()) return envVal.replace("\\", "\\\\").replace("\"", "\\\"")
+  val propVal = localProperties.getProperty(name, fallback) ?: fallback
+  return propVal.replace("\\", "\\\\").replace("\"", "\\\"")
+}
 
 
 plugins {
@@ -99,6 +103,7 @@ dependencies {
   // Uncomment to use Firestore:
   implementation(libs.firebase.firestore)
   implementation(libs.firebase.storage)
+  implementation(libs.parse.sdk)
 
   // Uncomment ALL FOUR of the following dependencies together to use Firebase Auth and Google
   // Sign-In via Credential Manager:
